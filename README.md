@@ -14,6 +14,11 @@ session and the code) disagree about the same interface.
 
 ## How it works
 
+![Seamline architecture: Claude Code sessions are read, facts are extracted with Claude Opus 5 and kept in a local SQLite ledger with facts from the code, and mismatches between services are flagged. Next: briefs via Claude Code hooks and an MCP server.](docs/architecture.png)
+
+Solid parts work today; dashed parts are next. Everything runs on your machine except
+extraction, which sends session excerpts (secrets masked) to the Anthropic API.
+
 ```
 Claude Code transcripts (~/.claude/projects/…)          proto / docker-compose files
         │                                                          │
