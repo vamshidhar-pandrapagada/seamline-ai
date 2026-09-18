@@ -1,0 +1,160 @@
+# Planted drift cases for `eval/score_drift.py`. Each case is one provider and one consumer
+# assumption about the same interface. `mismatch = true` means drift detection must flag it;
+# `false` means it must stay quiet (a false alarm here is as bad as a miss).
+
+# --- Must be flagged ----------------------------------------------------------------------
+
+[[case]]
+name = "renamed field (the shop demo)"
+provides = { amount_cents = "integer" }
+assumes = { amount = "decimal" }
+mismatch = true
+
+[[case]]
+name = "same field, different type"
+provides = { amount_cents = "integer" }
+assumes = { amount_cents = "string" }
+mismatch = true
+
+[[case]]
+name = "type conflict across spellings"
+provides = { orderId = "string" }
+assumes = { order_id = "integer" }
+mismatch = true
+
+[[case]]
+name = "proto type vs prose type"
+provides = { amount_cents = "int64" }
+assumes = { amount_cents = "a float" }
+mismatch = true
+
+[[case]]
+name = "field the provider doesn't send"
+provides = { order_id = "string", total = "integer" }
+assumes = { customer_email = "string" }
+mismatch = true
+
+[[case]]
+name = "timestamp vs string"
+provides = { created_at = "google.protobuf.Timestamp" }
+assumes = { created_at = "ISO string" }
+mismatch = true
+
+# --- Must NOT be flagged ------------------------------------------------------------------
+
+[[case]]
+name = "identical contract"
+provides = { amount_cents = "integer" }
+assumes = { amount_cents = "integer" }
+mismatch = false
+
+[[case]]
+name = "different spellings, same contract"
+provides = { amountCents = "int64" }
+assumes = { amount_cents = "integer" }
+mismatch = false
+
+[[case]]
+name = "consumer detail that isn't a typed field"
+provides = { amount_cents = "integer" }
+assumes = { unit = "cents" }
+mismatch = false
+
+[[case]]
+name = "consumer uses a subset"
+provides = { order_id = "string", amount_cents = "integer", currency = "string" }
+assumes = { currency = "string" }
+mismatch = false
+
+[[case]]
+name = "provider states no typed fields"
+provides = { purpose = "notify other services" }
+assumes = { amount = "decimal" }
+mismatch = false
+
+[[case]]
+name = "integer widths"
+provides = { qty = "int32" }
+assumes = { qty = "int64" }
+mismatch = false
+
+[[case]]
+name = "decimal vs float"
+provides = { price = "double" }
+assumes = { price = "decimal" }
+mismatch = false
+
+[[case]]
+name = "a service's assumption about its own interface"
+provides = { amount_cents = "integer" }
+assumes = { amount = "decimal" }
+same_service = true
+mismatch = false
+
+# --- Beyond the shop demo -----------------------------------------------------------------
+
+[[case]]
+name = "auth: expiry as seconds-from-now vs absolute time"
+provides = { access_token = "string", expires_in = "integer seconds" }
+assumes = { access_token = "string", expires_at = "timestamp" }
+mismatch = true
+
+[[case]]
+name = "config: unit in the field name"
+provides = { timeout_ms = "integer" }
+assumes = { timeout_s = "integer" }
+mismatch = true
+
+[[case]]
+name = "pagination: cursor vs page number"
+provides = { items = "list of Agent", next_cursor = "string" }
+assumes = { page = "integer" }
+mismatch = true
+
+[[case]]
+name = "gRPC (AgentConfig message): field the proto doesn't have"
+provides = { name = "string", model = "string", metadata = "map<string,string>" }
+assumes = { model_id = "string" }
+mismatch = true
+
+[[case]]
+name = "boolean vs string flag"
+provides = { enabled = "bool" }
+assumes = { enabled = "the string 'true' or 'false'" }
+mismatch = true
+
+[[case]]
+name = "gRPC map field, same type"
+provides = { metadata = "map<string,string>" }
+assumes = { metadata = "map<string, string>" }
+mismatch = false
+
+[[case]]
+name = "repeated field described in prose"
+provides = { items = "repeated LineItem" }
+assumes = { items = "a list of line items" }
+mismatch = false
+
+[[case]]
+name = "enum the consumer reads as a string"
+provides = { state = "AgentState enum" }
+assumes = { state = "string" }
+mismatch = false
+
+# --- Known limitations: reported, not gated ------------------------------------------------
+# Real mismatches (or clean pairs) the current rules get wrong. Tracked so a fix shows up
+# as an improvement instead of hiding.
+
+[[case]]
+name = "unit only in the value (ms vs s)"
+provides = { timeout = "integer milliseconds" }
+assumes = { timeout = "integer seconds" }
+mismatch = true
+known_limitation = true
+
+[[case]]
+name = "nested field flattened by the consumer"
+provides = { customer = "Customer message", customer_email = "string" }
+assumes = { customer_id = "string" }
+mismatch = false
+known_limitation = true

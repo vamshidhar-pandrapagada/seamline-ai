@@ -1,0 +1,12 @@
+.venv/
+.seamline/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+eval/out/
+.DS_Store
+.claude/settings.local.json
+IMPLEMENTATION_PLAN.md
+seamline-canvas.html
+seamline_canvas.html
