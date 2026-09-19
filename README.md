@@ -167,6 +167,8 @@ model = "claude-opus-5"           # default; claude-haiku-4-5 is cheaper but les
 
 [worker]
 idle_minutes = 10                 # Phase 4
+daily_budget_usd = 5.0            # background extraction stops for the day at this spend
+
 [brief]
 max_tokens = 400                  # Phase 4
 update_max_tokens = 100
@@ -230,6 +232,11 @@ records are recognized and extracted only once.
 - **Cost:** on Claude Opus 5, about 4–5 cents per excerpt (measured); a typical session is
   1–3 excerpts. The judge's calls are rare and small. `ingest` shows an estimate and asks
   before spending; `--yes` skips the question.
+- **Spend tracking:** every model call's cost (the token usage the API reports × list
+  prices) is recorded in the ledger. `ingest` shows today's total against
+  `[worker] daily_budget_usd` ($5 by default). The cap stops background work (Phase 4);
+  runs you confirm yourself are recorded but not blocked. For a hard limit on the key
+  itself, also set a spend limit in the Anthropic Console.
 
 ## Known limitations
 

@@ -240,3 +240,22 @@ def test_forget_session_keeps_shared_facts_and_restores_what_it_replaced():
 
     assert q.forget_session(conn, "a") == (0, 1)  # shared fact keeps b's evidence
     assert [e["session_id"] for e in q.evidence_for(conn, shared)] == ["b"]
+
+
+def test_ingest_records_spend_and_shows_it_against_the_cap(shop):
+    conn = connect(":memory:")
+    lines = []
+    run_ingest(conn, shop, lambda: FakeProvider(model), yes=True, out=lines.append)
+    assert "Spent today: $0.00 of the $5.00 daily cap" in lines
+    assert conn.execute("SELECT COUNT(*) FROM spend").fetchone()[0] >= 1
+    assert "This run cost $0.00." in lines
+
+
+def test_budget_stop_ends_the_session_without_marking_it_read(shop):
+    from seamline.extract.budget import BudgetExceeded
+
+    conn = connect(":memory:")
+    provider = FakeProvider([BudgetExceeded("daily cap reached")] * 5)
+    run_ingest(conn, shop, lambda: provider, yes=True, out=lambda _: None)
+    assert len(provider.prompts) == 1  # Stopped after the first refusal, per session
+    assert q.all_session_states(conn) == {}

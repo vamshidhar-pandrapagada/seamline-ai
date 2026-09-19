@@ -402,3 +402,25 @@ def forget_session(conn: sqlite3.Connection, session_id: str) -> tuple[int, int]
         conn.execute("DELETE FROM facts WHERE id = ?", (f,))
     conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
     return len(only_here), len(fact_ids) - len(only_here)
+
+
+def record_spend(
+    conn: sqlite3.Connection,
+    day: str,
+    model: str,
+    purpose: str,
+    input_tokens: int,
+    output_tokens: int,
+    usd: float | None,
+) -> None:
+    conn.execute(
+        "INSERT INTO spend (day, model, purpose, input_tokens, output_tokens, usd)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (day, model, purpose, input_tokens, output_tokens, usd),
+    )
+
+
+def spent_on(conn: sqlite3.Connection, day: str) -> float:
+    """USD spent on model calls that day (calls with an unknown price count as 0)."""
+    row = conn.execute("SELECT COALESCE(SUM(usd), 0) FROM spend WHERE day = ?", (day,)).fetchone()
+    return float(row[0])

@@ -22,8 +22,12 @@ class ProviderError(Exception):
     """The model call failed or returned something unusable. Retrying later may help."""
 
 
-class ProviderAuthError(ProviderError):
-    """No usable credentials. Every call would fail the same way, so stop."""
+class ProviderStop(ProviderError):
+    """Every further call would fail the same way, so stop instead of trying the next one."""
+
+
+class ProviderAuthError(ProviderStop):
+    """No usable credentials."""
 
 
 @dataclass

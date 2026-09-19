@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from seamline.config import Config
 from seamline.extract.chunker import DEFAULT_BUDGET_TOKENS, Chunk, build_chunks
-from seamline.extract.providers import LLMProvider, ProviderAuthError, ProviderError
+from seamline.extract.providers import LLMProvider, ProviderError, ProviderStop
 from seamline.extract.schema import FACT_JSON_SCHEMA, ExtractedFact, ExtractionOutput
 from seamline.extract.verify import verify
 from seamline.transcripts.classify import classify
@@ -45,6 +45,7 @@ class ExtractionReport:
     facts: list[Fact] = field(default_factory=list)
     rejected: list[Rejected] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)  # One per failed excerpt
+    stopped: bool = False  # A call failed in a way every later call would too (key, cap)
     chunks: int = 0
     chunks_done: int = 0
     input_tokens: int = 0
@@ -69,8 +70,9 @@ def extract_events(
     for chunk in chunks[:max_chunks] if max_chunks else chunks:
         try:
             completion = provider.complete(system, _user_prompt(config, chunk), FACT_JSON_SCHEMA)
-        except ProviderAuthError as e:
+        except ProviderStop as e:
             report.errors.append(str(e))
+            report.stopped = True
             break
         except ProviderError as e:
             report.errors.append(f"lines {chunk.lines[0]}-{chunk.lines[1]}: {e}")

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable
+from datetime import date
 
 from seamline.config import Config
 from seamline.contracts.scan import scan
+from seamline.extract.budget import MeteredProvider
 from seamline.extract.pricing import estimate_usd
 from seamline.extract.providers import LLMProvider
 from seamline.ledger import queries as q
@@ -60,6 +62,10 @@ def run_ingest(
     cost = estimate_usd(model, chars, calls)
     cost_text = f"about ${cost:.2f}" if cost is not None else "cost unknown for this model"
     out(f"{len(todo)} session(s) with new lines, {calls} model call(s), {cost_text} on {model}:")
+    cap = config.worker.daily_budget_usd
+    spent = q.spent_on(conn, date.today().isoformat())
+    over = " (reached; it stops background work, not runs you confirm)" if spent >= cap else ""
+    out(f"Spent today: ${spent:.2f} of the ${cap:.2f} daily cap{over}")
     for p in todo:
         out(
             f"  {p.session.service:<16} {p.session.info.session_id[:8]}  "
@@ -77,13 +83,20 @@ def run_ingest(
                     f"Redo {sid[:8]}: removed {deleted} fact(s) from its last extraction"
                     + (f"; {kept} also backed by other sessions kept" if kept else "")
                 )
-    provider = provider_factory() if calls else None
+    provider = MeteredProvider(provider_factory(), conn, model) if calls else None
     status = 0
     for p in todo:
         result = ingest(conn, config, p, provider, max_chunks=max_chunks)
         _print_ingest(p, result, out)
         if result.report.errors and not result.report.chunks_done:
             status = 1
+        if result.report.stopped:
+            left = len(todo) - todo.index(p) - 1
+            if left:
+                out(f"Stopped; {left} more session(s) left for the next run.")
+            break
+    if provider:
+        out(f"This run cost ${provider.spent_usd:.2f}.")
     _print_open_mismatches(conn, out)
     return status
 

@@ -32,6 +32,7 @@ class ExtractSettings:
 @dataclass
 class WorkerSettings:
     idle_minutes: int = 10
+    daily_budget_usd: float = 5.0  # Background extraction stops for the day at this spend
 
 
 @dataclass
@@ -115,9 +116,13 @@ def parse_config(data: dict, root: Path) -> Config:
         raise ConfigError("`extract.model` must be a non-empty string")
 
     worker_table = _table(data, "worker")
-    _check_keys(worker_table, {"idle_minutes"}, "worker")
+    _check_keys(worker_table, {"idle_minutes", "daily_budget_usd"}, "worker")
     worker = WorkerSettings(**worker_table)
     _check_positive_int(worker.idle_minutes, "worker.idle_minutes")
+    budget = worker.daily_budget_usd
+    if isinstance(budget, bool) or not isinstance(budget, int | float) or budget <= 0:
+        raise ConfigError("`worker.daily_budget_usd` must be a positive number of US dollars")
+    worker.daily_budget_usd = float(budget)
 
     brief_table = _table(data, "brief")
     _check_keys(brief_table, {"max_tokens", "update_max_tokens"}, "brief")
@@ -143,7 +148,10 @@ def dump_config(config: Config) -> str:
         "services": dict(config.services),
         "contracts": {"paths": list(config.contracts)},
         "extract": {"provider": config.extract.provider, "model": config.extract.model},
-        "worker": {"idle_minutes": config.worker.idle_minutes},
+        "worker": {
+            "idle_minutes": config.worker.idle_minutes,
+            "daily_budget_usd": config.worker.daily_budget_usd,
+        },
         "brief": {
             "max_tokens": config.brief.max_tokens,
             "update_max_tokens": config.brief.update_max_tokens,

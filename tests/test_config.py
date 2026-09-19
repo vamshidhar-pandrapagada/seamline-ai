@@ -55,6 +55,7 @@ def test_defaults(tmp_path):
     assert cfg.extract.provider == "anthropic"
     assert cfg.extract.model == DEFAULT_MODEL
     assert cfg.worker.idle_minutes == 10
+    assert cfg.worker.daily_budget_usd == 5.0
     assert cfg.brief.max_tokens == 400
     assert cfg.brief.update_max_tokens == 100
 
@@ -107,6 +108,8 @@ update_max_tokens = 50
         ('project = "x"\n[extract]\ntemperature = 0', "unknown key"),
         ('project = "x"\n[worker]\nidle_minutes = 0', "positive integer"),
         ('project = "x"\n[worker]\nidle_minutes = true', "positive integer"),
+        ('project = "x"\n[worker]\ndaily_budget_usd = 0', "positive number"),
+        ('project = "x"\n[worker]\ndaily_budget_usd = "5"', "positive number"),
         ('project = "x"\n[brief]\nmax_tokens = "400"', "positive integer"),
         ("project = [", "invalid TOML"),
     ],

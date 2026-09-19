@@ -1,4 +1,3 @@
-
 import pytest
 
 from seamline.config import parse_config
