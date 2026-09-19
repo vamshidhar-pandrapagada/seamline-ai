@@ -8,9 +8,11 @@ session and the code) disagree about the same interface.
 
 > **Status: Phases 0–5 done.** Seamline reads your Claude Code sessions, extracts facts
 > into a per-project ledger, scans `.proto` and docker-compose contracts, and detects drift.
-> Per-project hooks capture sessions in the background (within a daily spending cap), brief
-> new sessions, and tell open sessions when another one changed something relevant. An MCP
+> Hooks capture sessions in the background (within a daily spending cap), brief new
+> sessions, and tell open sessions when another one changed something relevant. An MCP
 > server lets Claude query the ledger itself (see [MCP tools](#mcp-tools)).
+>
+> **New here?** Follow [Getting started](#getting-started-step-by-step).
 
 ## How it works
 
@@ -51,29 +53,124 @@ interface), `decision`, `dead_end` (something tried that failed). Interface kind
   Seamline never stores it. A Claude subscription login is not used. For automatic mode,
   see [Giving the worker a key](#giving-the-worker-a-key).
 
-## Quick start
+## Getting started (step by step)
 
-Once per machine:
+A walkthrough for a new user on macOS with the Claude desktop app. It takes about 5
+minutes the first time; after that, each new project is one command.
+
+**What you need first**
+
+- **Claude Code**, in the Claude desktop app or the CLI.
+- **[uv](https://docs.astral.sh/uv/)**, which provides Python 3.12:
+  `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- **An Anthropic API key** from [console.anthropic.com](https://console.anthropic.com).
+  Seamline uses it to extract facts, in the background, usually a few cents per session.
+  A dedicated key with a spend limit is a good idea.
+
+### Part 1: once per machine
+
+**1. Install Seamline**
 
 ```bash
-git clone https://github.com/vamshidhar-pandrapagada/seamline-ai.git
-uv tool install --editable ./seamline-ai   # puts `seamline` on your PATH
-seamline install                            # user-level hooks (see below)
-read -s KEY && launchctl setenv SEAMLINE_ANTHROPIC_API_KEY "$KEY" && unset KEY   # macOS
-# then quit and reopen the Claude app
+git clone https://github.com/vamshidhar-pandrapagada/seamline-ai.git ~/seamline-ai
+uv tool install --editable ~/seamline-ai
+seamline --version
 ```
 
-Once per project, in its top folder (the one that contains all its services):
+**2. Turn it on for Claude Code**
+
+```bash
+seamline install
+```
+
+This adds small hooks to your Claude Code user settings. They only act in folders that
+contain a `seamline.toml` (or have one above them); everywhere else they exit in a few
+milliseconds and read nothing. See [Install](#install) for details.
+
+**3. Give Seamline your API key**
+
+```bash
+read -s KEY && launchctl setenv SEAMLINE_ANTHROPIC_API_KEY "$KEY" && unset KEY
+```
+
+Paste the key and press Enter (nothing shows as you paste). Use this name, not
+`ANTHROPIC_API_KEY`, so your Claude chats stay on your subscription (see
+[Giving the worker a key](#giving-the-worker-a-key)). **Repeat this step after every
+reboot.**
+
+**4. Restart the Claude app**: quit it (Cmd+Q) and reopen it, so it picks up the key.
+
+### Part 2: once per project
+
+**5. Go to the project's top folder**, the one that contains all its services:
 
 ```bash
 cd ~/code/my-project
-seamline init          # interactive; --yes accepts everything detected
-seamline scan          # if it has .proto or docker-compose contracts
 ```
 
-`init` also turns on Seamline's MCP tools for that project (it asks first). Then just work: every **new** Claude Code session started in that folder or anywhere below
-it (a service folder, a deep subfolder, a folder you create next month) is tracked, gets a
-brief, and has Seamline's tools. Check on it any time with `seamline status`.
+**6. Set it up**
+
+```bash
+seamline init
+```
+
+- It shows the services and contract files it found. Press Enter to accept each, type a
+  new name, or `-` to drop one.
+- It asks **"Turn on Seamline's MCP tools…? [Y/n]"**. Press Enter for yes.
+
+**7. If the project has `.proto` or docker-compose files**, read them in:
+
+```bash
+seamline scan
+```
+
+**8. Check that everything is on**
+
+```bash
+seamline status
+```
+
+You should see `user-level install` and `MCP server (.mcp.json) registered and approved`.
+
+### Part 3: use it
+
+**9. Open a new session** in the desktop app, in the project folder or any folder inside
+it: a service folder, a subfolder, or a folder you create later.
+
+**10. Work normally.** Seamline runs on its own:
+
+- **New sessions** start with a short brief of what other sessions learned: contract
+  mismatches, dead ends, decisions.
+- **Your sessions are read in the background**: after 10 quiet minutes, or right away
+  when you switch to another session.
+- **Open sessions get a short update** on their next prompt when another session changed
+  something that affects them.
+- **Claude can look up details itself** with Seamline's tools before planning
+  cross-service work.
+
+**11. Check it's working** after a session or two:
+
+```bash
+seamline status   # hook activity, background worker, today's spend
+seamline facts    # what Seamline has learned, with quotes
+seamline drift    # places where services disagree
+```
+
+### Good to know
+
+| Situation | What to do |
+|---|---|
+| After a reboot | Redo step 3, then step 4 |
+| Added a new service folder | Nothing needed: it's tracked. To have its facts filed under its own name, add it to `[services]` in `seamline.toml` |
+| Sessions already open before setup | They don't get Seamline; start new ones |
+| Pause recording in one project | `seamline pause`; turn it back on with `seamline resume` |
+| Remove it from a project | `seamline remove` (asks before deleting the ledger) |
+| Remove it from your machine | `seamline uninstall-global`, then `uv tool uninstall seamline` |
+| Spending | Capped at $5/day by default (`daily_budget_usd` in `seamline.toml`) |
+| First session in a brand-new project lacks Seamline's tools | Run `seamline resume` in the project, then start a new session |
+
+Don't run `seamline init` in a folder that holds many unrelated projects, like
+`~/Documents`: it refuses, because everything below `seamline.toml` becomes one project.
 
 ## Install
 
