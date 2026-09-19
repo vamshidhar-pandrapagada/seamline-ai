@@ -531,3 +531,14 @@ def interfaces_of(conn: sqlite3.Connection, service: str) -> set[int]:
         (service,),
     )
     return {r[0] for r in rows}
+
+
+def mismatch_open_at(conn: sqlite3.Connection, mismatch_id: int, change_id: int) -> bool:
+    """Whether the mismatch was open right after change `change_id`."""
+    row = conn.execute(
+        """SELECT kind FROM changes WHERE mismatch_id = ? AND change_id <= ?
+           AND kind IN ('mismatch_opened', 'mismatch_resolved')
+           ORDER BY change_id DESC LIMIT 1""",
+        (mismatch_id, change_id),
+    ).fetchone()
+    return bool(row) and row[0] == "mismatch_opened"

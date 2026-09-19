@@ -260,3 +260,31 @@ def test_worker_error_is_recorded(shop, isolated_claude_home, spawned):
     status = read_status(shop.root)
     assert status["state"] == "error" and "no key" in status["message"]
     assert q.work_queue(open_ledger(shop.root))  # Still flagged
+
+
+def test_mismatch_resolved_and_reopened_unchanged_is_not_news(shop, isolated_claude_home, spawned):
+    from seamline.resolve.drift import recompute
+
+    conn = open_ledger(shop.root)
+    run_ingest(conn, shop, lambda: FakeProvider(model), yes=True, out=lambda _: 0)
+    hook("SessionStart", shop, isolated_claude_home, "root-1", ".")
+    (m,) = q.open_mismatches(conn)
+    # The provider fact goes stale (code changed), then a new one with the same problem lands
+    with conn:
+        q.mark_stale(conn, m["provides_fact"], "code")
+        recompute(conn)
+        assert q.open_mismatches(conn) == []
+        q.restore(conn, m["provides_fact"])
+        recompute(conn)
+    assert len(q.open_mismatches(conn)) == 1
+    text = hook("UserPromptSubmit", shop, isolated_claude_home, "root-1", ".")
+    assert "Resolved" not in text and "New mismatch" not in text
+
+
+def test_a_long_first_line_is_shortened_not_dropped(shop):
+    from seamline.brief import _fit
+
+    text = _fit("Header", [("", ["- " + "word " * 200, "- second"])], 100)
+    assert text.splitlines()[1].endswith("…")
+    assert len(text) <= 400
+    assert text.endswith("with quotes)")
