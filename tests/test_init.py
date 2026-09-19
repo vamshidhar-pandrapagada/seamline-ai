@@ -110,5 +110,4 @@ def test_cli_init_and_placeholders(shop, capsys):
     assert main(["init", str(shop), "--yes"]) == 1
     assert "already exists" in capsys.readouterr().err
     assert (shop / ".claude" / "settings.local.json").exists()  # init installs hooks
-    assert main(["mcp"]) == 1
-    assert "not yet implemented (phase 5)" in capsys.readouterr().err
+    assert (shop / ".mcp.json").exists()  # and registers the MCP server

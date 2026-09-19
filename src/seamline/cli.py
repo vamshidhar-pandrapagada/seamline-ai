@@ -21,13 +21,12 @@ from seamline.lifecycle import (
     run_resume,
     run_status,
 )
+from seamline.mcp_server.registration import McpConfigError
 from seamline.project_init import InitError, run_init
 from seamline.session_views import resolve_project, run_extract, show_session, show_sessions
 
-# name -> (phase it arrives in, help text)
-PLANNED: dict[str, tuple[int, str]] = {
-    "mcp": (5, "Start the MCP server (stdio)"),
-}
+# name -> (phase it arrives in, help text); empty now that every planned command exists
+PLANNED: dict[str, tuple[int, str]] = {}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -136,6 +135,10 @@ def build_parser() -> argparse.ArgumentParser:
     worker.add_argument("--root", help=root_help)
     worker.set_defaults(func=cmd_worker)
 
+    mcp = sub.add_parser("mcp", help="Run the MCP server over stdio (Claude Code starts it)")
+    mcp.add_argument("--root", help=root_help)
+    mcp.set_defaults(func=cmd_mcp)
+
     hook = sub.add_parser("hook", help="Entry point for Claude Code hooks (JSON on stdin)")
     hook.add_argument("event", help="Hook event name, e.g. SessionStart")
     hook.set_defaults(func=cmd_hook)
@@ -156,9 +159,9 @@ def cmd_init(args: argparse.Namespace) -> int:
     try:
         result = run_init(Path(args.path), yes=args.yes, force=args.force)
         if not args.no_hooks:
-            print("\nHooks (this project only; `seamline pause` turns them off):")
+            print("\nHooks and MCP server (this project only; `seamline pause` turns them off):")
             install_hooks(result.config)
-    except (InitError, ConfigError, SettingsError) as e:
+    except (InitError, ConfigError, SettingsError, McpConfigError) as e:
         print(f"seamline init: {e}", file=sys.stderr)
         return 1
     except (KeyboardInterrupt, EOFError):
@@ -297,7 +300,7 @@ def cmd_lifecycle(args: argparse.Namespace) -> int:
         if args.command == "resume":
             return run_resume(config)
         return run_remove(config)
-    except (ConfigError, SettingsError) as e:
+    except (ConfigError, SettingsError, McpConfigError) as e:
         print(f"seamline {args.command}: {e}", file=sys.stderr)
         return 1
     except (KeyboardInterrupt, EOFError):
@@ -315,6 +318,20 @@ def cmd_worker(args: argparse.Namespace) -> int:
         return 1
     setup_logging(config.root)
     return run_worker(config, lambda: make_provider(config))
+
+
+def cmd_mcp(args: argparse.Namespace) -> int:
+    from seamline.mcp_server.server import run
+
+    try:
+        config = resolve_project(args.root)
+        if not config.path.exists():
+            raise ConfigError(f"{config.root} has no seamline.toml; run `seamline init` there")
+    except ConfigError as e:
+        print(f"seamline mcp: {e}", file=sys.stderr)
+        return 1
+    run(config)
+    return 0
 
 
 def cmd_hook(args: argparse.Namespace) -> int:

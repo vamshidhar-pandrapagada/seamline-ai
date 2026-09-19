@@ -15,6 +15,7 @@ from seamline.config import INTEGRATION, Config
 from seamline.extract.providers import SEAMLINE_KEY_ENV, key_source
 from seamline.hooks import settings as hook_settings
 from seamline.ledger import queries as q
+from seamline.mcp_server import registration as mcp_registration
 from seamline.worker_control import read_status, worker_running
 
 KEY_HELP = (
@@ -46,6 +47,8 @@ def install_hooks(config: Config, out: Out = print) -> None:
     note = hook_settings.ensure_gitignored(config)
     if note:
         out(note)
+    for note in mcp_registration.install(config):
+        out(note)
     paths.paused_marker(config.root).unlink(missing_ok=True)
 
 
@@ -56,6 +59,9 @@ def uninstall_hooks(config: Config, out: Out = print) -> int:
             out(f"Removed hooks from {_rel(config, hook_settings.settings_path(folder))}")
             removed += 1
     _record(config).unlink(missing_ok=True)
+    if mcp_registration.uninstall(config):
+        out(f"Removed the seamline MCP server from {mcp_registration.FILENAME}")
+        removed += 1
     return removed
 
 
@@ -119,6 +125,11 @@ def run_status(conn: sqlite3.Connection, config: Config, out: Out = print) -> in
             else (f"partial ({', '.join(events)})" if events else "missing (seamline resume)")
         )
         out(f"  {_rel(config, folder) + '/':<32} {state}")
+    mcp_state = "registered" if mcp_registration.installed(config) else "missing (seamline resume)"
+    out(f"  {'MCP server (.mcp.json)':<32} {mcp_state}")
+    starts = _mcp_starts(root)
+    if starts:
+        out(f"  MCP server last started {starts}")
     last = _last_hook_calls(root)
     if last:
         out("  Recent hook calls:")
@@ -185,6 +196,14 @@ def _last_hook_calls(root: Path, limit: int = 5) -> list[str]:
     lines = _tail(paths.hooks_log_path(root))
     calls = [line for line in lines if line[:4].isdigit()]
     return [_ago(line) for line in calls[-limit:]]
+
+
+def _mcp_starts(root: Path) -> str | None:
+    starts = [line for line in _tail(paths.logs_dir(root) / "mcp.log") if " start: " in line]
+    if not starts:
+        return None
+    stamp = starts[-1][:19]
+    return f"{stamp} ({len(starts)} start(s) logged)"
 
 
 def _recent_errors(root: Path, limit: int = 3) -> list[str]:

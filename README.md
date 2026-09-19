@@ -9,8 +9,9 @@ session and the code) disagree about the same interface.
 > **Status: Phases 0–4 done.** Seamline reads your Claude Code sessions, extracts facts
 > into a per-project ledger, scans `.proto` and docker-compose contracts, and detects drift.
 > Per-project hooks capture sessions in the background (within a daily spending cap), brief
-> new sessions, and tell open sessions when another one changed something relevant. Tools
-> Claude can query arrive in Phase 5 (see [Roadmap](#roadmap)).
+> new sessions, and tell open sessions when another one changed something relevant.
+> **Phase 5 built:** an MCP server lets Claude query the ledger itself (live trial pending;
+> see [Roadmap](#roadmap)).
 
 ## How it works
 
@@ -83,8 +84,9 @@ seamline init          # interactive; --yes accepts everything detected
   `compose*.yml`, and OpenAPI files (listed, but not scanned yet).
 - **Writes** `seamline.toml` (commit it if you like) and `.seamline/` (the ledger and logs),
   and adds `.seamline/` to `.gitignore` if the folder is a git repo.
-- **Installs hooks** for this project only (see [Automatic mode](#automatic-mode-hooks)),
-  unless you pass `--no-hooks`.
+- **Installs hooks** and registers the **MCP server** for this project only (see
+  [Automatic mode](#automatic-mode-hooks) and [MCP tools](#mcp-tools)), unless you pass
+  `--no-hooks`.
 - **Warns** if Claude Code's `cleanupPeriodDays` is unset or low (transcripts are deleted
   after ~30 days by default; 365 is a good value) and reports how many sessions it found.
 
@@ -194,6 +196,30 @@ limit in the Anthropic Console is a good second safeguard next to the daily cap.
 folders that are no longer services. Open sessions keep the hooks they started with until
 they restart; while paused, those hooks do nothing.
 
+## MCP tools
+
+`init` (or `seamline resume`) also adds a `seamline` server to the project's `.mcp.json`.
+Claude Code finds that file from any folder inside the project, so one entry at the root
+serves every service. It asks you to approve the server the first time; Seamline doesn't
+approve itself. If Seamline created the file, it's added to `.gitignore` (it holds this
+machine's paths).
+
+| Tool | Claude calls it to… |
+|---|---|
+| `get_integration_context(services)` | see how services fit together: every shared interface, each side's claims with sources, open mismatches first |
+| `check_contract(interface)` | see every claim about one event, endpoint or message (any spelling: `order.created`, `OrderCreated`), with quotes, dates and history |
+| `find_dead_ends(topic)` | check whether an approach was already tried and abandoned, and why |
+| `search_history(query)` | find decisions, current and superseded, with their sources |
+| `remember(fact, kind?, service?, interface?)` | store something **you** stated or confirmed, so other sessions see it |
+
+All but `remember` are read-only. Answers are Markdown under a size cap; every fact line
+cites its session and line (or file), and each answer ends with how fresh it is.
+
+**Catch-up on demand:** before answering, `get_integration_context` and `check_contract`
+have other sessions' unread lines extracted first (by the background worker, so the daily
+cap applies), waiting up to 30 s. If that isn't enough, the answer says which session is
+still being read. The server logs where it started to `.seamline/logs/mcp.log`.
+
 ## Commands
 
 | Command | What it does | Options |
@@ -212,10 +238,10 @@ they restart; while paused, those hooks do nothing.
 | `seamline remove` | Remove hooks and `seamline.toml`; asks before deleting `.seamline/` | `--root` |
 | `seamline worker` | Run the background worker in the foreground (normally the hooks start it) | `--root` |
 | `seamline hook <Event>` | What the hooks call (JSON from Claude Code on stdin) | |
+| `seamline mcp` | Run the MCP server over stdio (Claude Code starts it from `.mcp.json`) | `--root` |
 
 Commands that read or write the ledger need a project that has run `init`; they never
-create `.seamline/` elsewhere. `mcp` (Phase 5) is listed in `--help` but not implemented
-yet.
+create `.seamline/` elsewhere.
 
 ## Configuration: `seamline.toml`
 
@@ -326,6 +352,11 @@ records are recognized and extracted only once.
 - **Automatic mode is new:** it passed one live trial in the desktop app (two services, a
   renamed field and a unit mismatch both caught and relayed, ~$0.22 on Opus 5). Hooks take
   10–60 ms; the first one after the app starts can take about a second.
+- **Echoes:** when Claude repeats what Seamline told it (a brief, an update, a tool answer)
+  in its own words, extraction can record that as the session's own fact. Quotes still
+  point at the session, so `check_contract` shows where it came from.
+- **MCP catch-up and the calling session:** the server can't yet tell which session called
+  it, so a tool call may also have the caller's own recent lines extracted.
 - **Evidence from restatements:** when a session restates another service's contract, the
   newer statement replaces the original fact instead of adding evidence to it, so `drift`
   may quote the restating session rather than the owning one.
@@ -334,9 +365,8 @@ records are recognized and extracted only once.
 
 - **Phase 4 (done):** hooks, background worker, briefs and updates, the daily cap (see
   [Automatic mode](#automatic-mode-hooks)).
-- **Phase 5: MCP tools** Claude can call for detail (`get_integration_context`,
-  `check_contract`, `find_dead_ends`, `search_history`, `remember`), catching up on
-  unprocessed session lines before answering.
+- **Phase 5 (built, live trial pending):** MCP tools Claude can call for detail (see
+  [MCP tools](#mcp-tools)), catching up on unread session lines before answering.
 - **Phase 6:** two weeks of real use, a Claude Code plugin if it can be enabled per
   project, and the demo.
 
