@@ -28,54 +28,68 @@ Out = Callable[[str], None]
 Ask = Callable[[str], str]
 
 
-def install_hooks(config: Config, out: Out = print) -> None:
+def install_hooks(config: Config, out: Out = print, *, approve_mcp: bool = True) -> None:
     """Turn recording on for this project.
 
-    With `seamline install` done, the user-level hooks and MCP server already cover every
-    folder, so this only removes per-folder entries left from before. Otherwise: hooks in
-    the root and every service folder (stale ones from removed services go) and an entry in
-    the project's .mcp.json.
+    Hooks: with `seamline install` done, the user-level hooks already cover every folder, so
+    per-folder ones left from before are removed. Otherwise they go into the root and every
+    service folder (stale ones from removed services go).
+
+    MCP server: always registered in the project's own `.mcp.json`, so it only starts in
+    this project, and (with `approve_mcp`) approved for it.
     """
     if global_install.active():
-        uninstall_hooks(config, out)
+        _remove_folder_hooks(config, out)
+        out("Hooks: the user-level install (`seamline install`) covers every folder here.")
+    else:
+        wanted = {f.resolve() for f in hook_settings.hook_folders(config)}
+        for folder in _folders_with_hooks(config):
+            if folder.resolve() not in wanted and hook_settings.uninstall(folder):
+                out(f"Removed hooks from {_rel(config, folder)} (no longer a service)")
+        done = []
+        for folder in hook_settings.hook_folders(config):
+            if not folder.is_dir():
+                out(f"warning: {_rel(config, folder)} doesn't exist; no hooks there")
+                continue
+            changed = hook_settings.install(folder)
+            done.append(folder)
+            path = _rel(config, hook_settings.settings_path(folder))
+            out(f"{'Added hooks to' if changed else 'Hooks already in'} {path}")
+        _remember_folders(config, done)
+    for note in mcp_registration.install(config):
+        out(note)
+    if approve_mcp and mcp_registration.approve(config):
+        out("Approved the seamline MCP server for this project (.claude/settings.local.json)")
+    elif not approve_mcp and not mcp_registration.approved(config):
         out(
-            "User-level install found (`seamline install`): every folder of this project is "
-            "covered, so no per-folder hooks or .mcp.json entry are needed."
+            "The MCP server isn't approved yet: run `seamline resume` to approve it, or "
+            "`claude` in this folder and approve it there."
         )
-        paths.paused_marker(config.root).unlink(missing_ok=True)
-        return
-    wanted = {f.resolve() for f in hook_settings.hook_folders(config)}
-    for folder in _folders_with_hooks(config):
-        if folder.resolve() not in wanted and hook_settings.uninstall(folder):
-            out(f"Removed hooks from {_rel(config, folder)} (no longer a service)")
-    done = []
-    for folder in hook_settings.hook_folders(config):
-        if not folder.is_dir():
-            out(f"warning: {_rel(config, folder)} doesn't exist; no hooks there")
-            continue
-        changed = hook_settings.install(folder)
-        done.append(folder)
-        path = _rel(config, hook_settings.settings_path(folder))
-        out(f"{'Added hooks to' if changed else 'Hooks already in'} {path}")
-    _remember_folders(config, done)
     note = hook_settings.ensure_gitignored(config)
     if note:
-        out(note)
-    for note in mcp_registration.install(config):
         out(note)
     paths.paused_marker(config.root).unlink(missing_ok=True)
 
 
 def uninstall_hooks(config: Config, out: Out = print) -> int:
+    """Remove everything that makes this project recorded: per-folder hooks and the MCP
+    server's entry and approval (the user-level hooks stay; they skip paused projects)."""
+    removed = _remove_folder_hooks(config, out)
+    if mcp_registration.uninstall(config):
+        out(f"Removed the seamline MCP server from {mcp_registration.FILENAME}")
+        removed += 1
+    if mcp_registration.revoke(config):
+        removed += 1
+    return removed
+
+
+def _remove_folder_hooks(config: Config, out: Out) -> int:
     removed = 0
     for folder in {*hook_settings.hook_folders(config), *_folders_with_hooks(config)}:
         if hook_settings.uninstall(folder):
             out(f"Removed hooks from {_rel(config, hook_settings.settings_path(folder))}")
             removed += 1
     _record(config).unlink(missing_ok=True)
-    if mcp_registration.uninstall(config):
-        out(f"Removed the seamline MCP server from {mcp_registration.FILENAME}")
-        removed += 1
     return removed
 
 
@@ -132,20 +146,16 @@ def run_status(conn: sqlite3.Connection, config: Config, out: Out = print) -> in
 
     out("\nHooks:")
     if global_install.active():
-        mcp = "registered" if global_install.mcp_registered() else "MISSING (seamline install)"
         out("  user-level install (`seamline install`): every folder under this project")
-        out(f"  {'MCP server (user scope)':<32} {mcp}")
         leftovers = [
             _rel(config, f)
             for f in hook_settings.hook_folders(config)
             if hook_settings.installed(f)
         ]
-        if leftovers or mcp_registration.installed(config):
+        if leftovers:
             out(
-                "  leftover per-folder entries (harmless; `seamline resume` removes them): "
-                + ", ".join(
-                    leftovers + ([".mcp.json"] if mcp_registration.installed(config) else [])
-                )
+                "  leftover per-folder hooks (harmless; `seamline resume` removes them): "
+                + ", ".join(leftovers)
             )
     for folder in [] if global_install.active() else hook_settings.hook_folders(config):
         events = hook_settings.installed(folder)
@@ -155,11 +165,14 @@ def run_status(conn: sqlite3.Connection, config: Config, out: Out = print) -> in
             else (f"partial ({', '.join(events)})" if events else "missing (seamline resume)")
         )
         out(f"  {_rel(config, folder) + '/':<32} {state}")
-    if not global_install.active():
-        mcp_state = (
-            "registered" if mcp_registration.installed(config) else "missing (seamline resume)"
-        )
-        out(f"  {'MCP server (.mcp.json)':<32} {mcp_state}")
+    mcp_state = (
+        "missing (seamline resume)"
+        if not mcp_registration.installed(config)
+        else "registered and approved"
+        if mcp_registration.approved(config)
+        else "registered, NOT approved (seamline resume)"
+    )
+    out(f"  {'MCP server (.mcp.json)':<32} {mcp_state}")
     starts = _mcp_starts(root)
     if starts:
         out(f"  MCP server last started {starts}")

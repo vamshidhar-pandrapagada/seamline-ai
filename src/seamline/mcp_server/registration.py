@@ -2,13 +2,17 @@
 
 Unlike hooks, Claude Code looks for `.mcp.json` in the session's folder and its parents, so
 one file at the project root serves sessions started in any service folder (checked with
-`claude mcp list`, Claude Code 2.1.276). Claude Code asks you to approve a project's MCP
-server the first time; Seamline doesn't approve itself. Other servers in the file are left
-as they are.
+`claude mcp list`, Claude Code 2.1.276). Other servers in the file are left as they are.
+
+A project's MCP server also needs your approval. Claude Code's dialog records it as
+`"enabledMcpjsonServers": [...]` in the root's `.claude/settings.local.json`, which also
+covers sessions in subfolders; the desktop app never shows that dialog, so `init` asks you
+instead and writes the same entry (`approve`). Only the "seamline" name is approved.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import subprocess
 import sys
@@ -76,6 +80,61 @@ def uninstall(config: Config) -> bool:
     else:
         path.unlink()
     return True
+
+
+def approve(config: Config) -> bool:
+    """Record your approval of the seamline server for this project. True if it changed."""
+    path, data = _local_settings(config)
+    enabled = data.setdefault("enabledMcpjsonServers", [])
+    if SERVER_NAME in enabled:
+        return False
+    enabled.append(SERVER_NAME)
+    _save(path, data)
+    return True
+
+
+def revoke(config: Config) -> bool:
+    path, data = _local_settings(config)
+    enabled = data.get("enabledMcpjsonServers", [])
+    if SERVER_NAME not in enabled:
+        return False
+    enabled.remove(SERVER_NAME)
+    if not enabled:
+        data.pop("enabledMcpjsonServers")
+    if data:
+        _save(path, data)
+    else:
+        path.unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            path.parent.rmdir()
+    return True
+
+
+def approved(config: Config) -> bool:
+    try:
+        return SERVER_NAME in _local_settings(config)[1].get("enabledMcpjsonServers", [])
+    except McpConfigError:
+        return False
+
+
+def _local_settings(config: Config) -> tuple[Path, dict]:
+    path = config.root / ".claude" / "settings.local.json"
+    if not path.exists():
+        return path, {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8") or "{}")
+    except (OSError, ValueError) as e:
+        raise McpConfigError(f"{path}: not valid JSON ({e}); fix or remove it first") from e
+    if not isinstance(data, dict):
+        raise McpConfigError(f"{path}: unexpected layout; fix or remove it first")
+    return path, data
+
+
+def _save(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".seamline-tmp")
+    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
 
 
 def installed(config: Config) -> bool:

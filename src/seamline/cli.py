@@ -40,7 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     install = sub.add_parser(
         "install",
         help="One-time setup: track sessions in any folder of any Seamline project "
-        "(user-level hooks and MCP server that do nothing outside projects)",
+        "(user-level hooks that do nothing outside projects)",
     )
     install.set_defaults(func=cmd_install)
 
@@ -171,8 +171,8 @@ def cmd_init(args: argparse.Namespace) -> int:
     try:
         result = run_init(Path(args.path), yes=args.yes, force=args.force)
         if not args.no_hooks:
-            print("\nHooks and MCP server (this project only; `seamline pause` turns them off):")
-            install_hooks(result.config)
+            print("\nRecording (this project only; `seamline pause` turns it off):")
+            install_hooks(result.config, approve_mcp=args.yes or _ask_approval())
     except (InitError, ConfigError, SettingsError, McpConfigError) as e:
         print(f"seamline init: {e}", file=sys.stderr)
         return 1
@@ -180,6 +180,19 @@ def cmd_init(args: argparse.Namespace) -> int:
         print("\nseamline init: cancelled, nothing written", file=sys.stderr)
         return 130
     return 0
+
+
+def _ask_approval() -> bool:
+    """Default yes; no answer (end of input) means no, so nothing is approved unasked."""
+    try:
+        answer = input(
+            "Turn on Seamline's MCP tools in this project's Claude sessions (registers and "
+            "approves the seamline server in .mcp.json)? [Y/n] "
+        )
+    except EOFError:
+        print()
+        return False
+    return answer.strip().lower() in ("", "y", "yes")
 
 
 def cmd_sessions(args: argparse.Namespace) -> int:
@@ -333,8 +346,8 @@ def cmd_worker(args: argparse.Namespace) -> int:
 
 
 def cmd_mcp(args: argparse.Namespace) -> int:
-    """With --root, that project. Without it (the user-level registration), the project
-    containing the session's folder, or a server with no tools outside any project."""
+    """With --root, that project. Without it, the project containing the current folder,
+    or a server with no tools outside any project."""
     from seamline.config import find_project
     from seamline.mcp_server.server import run, run_outside_project
 

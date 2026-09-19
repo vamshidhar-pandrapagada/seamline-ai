@@ -89,4 +89,7 @@ without hooks. `seamline install` now adds the hooks once to the user settings i
 wrapped in a `/bin/sh` guard that walks up from `$PWD` to find `seamline.toml` and exits
 before Python starts when there is none, so other projects still see no Seamline activity.
 The per-folder setup remains the fallback when `install` hasn't been run; a folder with both
-handles each event once (the user-level call steps aside).
+handles each event once (the user-level call steps aside). The MCP server stays per project
+(`.mcp.json` at the root, found from any subfolder); its approval in the root's
+`.claude/settings.local.json` covered sessions in `a service folder and a folder below it in a
+project that is its own git repo (`claude mcp list`, 19 Sep).

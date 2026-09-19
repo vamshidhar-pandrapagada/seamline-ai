@@ -61,56 +61,20 @@ def test_guard_quotes_paths_with_spaces(tmp_path):
     assert "'\"'\"'/My Tools/python'\"'\"'" in cmd  # quoted inside the quoted script
 
 
-class FakeClaude:
-    def __init__(self):
-        self.calls = []
-
-    def __call__(self, cmd):
-        self.calls.append(cmd[1:])
-        return subprocess.CompletedProcess(cmd, 0, "", "")
-
-
-def test_install_and_uninstall_touch_only_seamline_entries(isolated_claude_home, monkeypatch):
-    monkeypatch.setattr(global_install.shutil, "which", lambda name: "/usr/bin/claude")
+def test_install_and_uninstall_touch_only_seamline_hooks(isolated_claude_home):
     settings = paths.claude_settings_path()
-    settings.write_text(
-        json.dumps(
-            {
-                "theme": "dark",
-                "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "mine"}]}]},
-            }
-        )
-    )
-    claude = FakeClaude()
-    assert global_install.install(python="/py", out=lambda _: None, run=claude) == 0
+    mine = {"hooks": [{"type": "command", "command": "mine"}]}
+    settings.write_text(json.dumps({"theme": "dark", "hooks": {"Stop": [mine]}}))
+    assert global_install.install(python="/py", out=lambda _: None) == 0
     data = json.loads(settings.read_text())
-    assert data["theme"] == "dark"
-    assert data["hooks"]["Stop"][0]["hooks"][0]["command"] == "mine"
+    assert data["theme"] == "dark" and data["hooks"]["Stop"][0] == mine
     assert sorted(hs.installed_file(settings)) == sorted(hs.EVENTS)
     assert global_install.active()
-    assert claude.calls == [
-        ["mcp", "add", "--scope", "user", "seamline", "--", "/py", "-m", "seamline", "mcp"]
-    ]
+    assert not (isolated_claude_home / ".claude.json").exists()  # No user-level MCP server
 
-    (isolated_claude_home / ".claude.json").write_text(json.dumps({"mcpServers": {"seamline": {}}}))
-    global_install.uninstall(out=lambda _: None, run=claude)
-    data = json.loads(settings.read_text())
-    assert data == {
-        "theme": "dark",
-        "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "mine"}]}]},
-    }
-    assert claude.calls[-1] == ["mcp", "remove", "--scope", "user", "seamline"]
+    global_install.uninstall(out=lambda _: None)
+    assert json.loads(settings.read_text()) == {"theme": "dark", "hooks": {"Stop": [mine]}}
     assert not global_install.active()
-
-
-def test_install_without_claude_on_path_prints_the_command(isolated_claude_home, monkeypatch):
-    monkeypatch.setattr(global_install.shutil, "which", lambda name: None)
-    lines = []
-    assert global_install.install(python="/py", out=lines.append) == 1
-    assert any(
-        "claude mcp add --scope user seamline -- /py -m seamline mcp" in line for line in lines
-    )
-    assert global_install.hooks_installed()  # The hooks part still happened
 
 
 @pytest.fixture
@@ -121,17 +85,33 @@ def project(tmp_path):
     return parse_config({"project": "shop", "services": {"orders": "services/orders"}}, root=root)
 
 
-def test_resume_with_user_level_install_removes_per_folder_entries(
-    project, isolated_claude_home, monkeypatch
+def test_resume_with_user_level_install_keeps_only_the_project_mcp_server(
+    project, isolated_claude_home
 ):
-    install_hooks(project, lambda _: None)  # The older per-project setup
-    assert hs.installed(project.root) and registration.installed(project)
+    install_hooks(project, lambda _: None)  # The older per-folder setup
+    assert hs.installed(project.root) and hs.installed(project.root / "services/orders")
     hs.install_file(paths.claude_settings_path(), global_install.guarded_command)
     lines = []
     install_hooks(project, lines.append)
     assert not hs.installed(project.root) and not hs.installed(project.root / "services/orders")
-    assert not registration.installed(project)
-    assert any("User-level install found" in line for line in lines)
+    assert registration.installed(project) and registration.approved(project)
+    assert any("user-level install" in line for line in lines)
+    # The approval lives on in the root's local settings after its hooks are gone
+    local = json.loads((project.root / ".claude" / "settings.local.json").read_text())
+    assert local == {"enabledMcpjsonServers": ["seamline"]}
+
+
+def test_approval_is_asked_for_and_revoked_on_pause(project, isolated_claude_home):
+    from seamline.lifecycle import run_pause
+
+    lines = []
+    install_hooks(project, lines.append, approve_mcp=False)
+    assert registration.installed(project) and not registration.approved(project)
+    assert any("isn't approved yet" in line for line in lines)
+    install_hooks(project, lambda _: None)
+    assert registration.approved(project)
+    run_pause(project, lambda _: None)
+    assert not registration.installed(project) and not registration.approved(project)
 
 
 def test_user_level_hook_steps_aside_when_the_folder_has_its_own(project, monkeypatch):
@@ -186,5 +166,32 @@ def test_status_reports_the_user_level_install_and_leftovers(project, isolated_c
     run_status(open_ledger(project.root), project, lines.append)
     text = "\n".join(lines)
     assert "user-level install" in text
-    assert "MCP server (user scope)" in text and "MISSING (seamline install)" in text
-    assert "leftover per-folder entries" in text and "." in text
+    assert "MCP server (.mcp.json)" in text and "missing (seamline resume)" in text
+    assert "leftover per-folder hooks" in text
+
+
+def test_init_without_an_answer_registers_but_does_not_approve(tmp_path, monkeypatch):
+    from seamline.cli import main
+
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path / "home")
+    root = tmp_path / "proj"
+    (root / "api").mkdir(parents=True)
+    (root / "api" / "pyproject.toml").write_text('[project]\nname = "api"\n')
+
+    answers = iter([""])  # Accept the one detected service, then run out of input
+
+    def fake_input(prompt=""):
+        try:
+            return next(answers)
+        except StopIteration:
+            raise EOFError from None
+
+    import seamline.cli as cli
+
+    real_run_init = cli.run_init
+    monkeypatch.setattr(cli, "run_init", lambda *a, **k: real_run_init(*a, ask=fake_input, **k))
+    monkeypatch.setattr("builtins.input", fake_input)  # The approval question
+    assert main(["init", str(root)]) == 0
+    config = parse_config({"project": "proj"}, root=root)
+    assert registration.installed(config) and not registration.approved(config)
+    assert (root / "seamline.toml").exists()

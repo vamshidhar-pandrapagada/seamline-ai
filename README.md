@@ -58,7 +58,7 @@ Once per machine:
 ```bash
 git clone https://github.com/vamshidhar-pandrapagada/seamline-ai.git
 uv tool install --editable ./seamline-ai   # puts `seamline` on your PATH
-seamline install                            # user-level hooks + MCP server (see below)
+seamline install                            # user-level hooks (see below)
 read -s KEY && launchctl setenv SEAMLINE_ANTHROPIC_API_KEY "$KEY" && unset KEY   # macOS
 # then quit and reopen the Claude app
 ```
@@ -71,7 +71,7 @@ seamline init          # interactive; --yes accepts everything detected
 seamline scan          # if it has .proto or docker-compose contracts
 ```
 
-Then just work: every **new** Claude Code session started in that folder or anywhere below
+`init` also turns on Seamline's MCP tools for that project (it asks first). Then just work: every **new** Claude Code session started in that folder or anywhere below
 it (a service folder, a deep subfolder, a folder you create next month) is tracked, gets a
 brief, and has Seamline's tools. Check on it any time with `seamline status`.
 
@@ -90,25 +90,20 @@ seamline --version
 ### One-time user-level setup: `seamline install`
 
 Claude Code runs a folder's own hooks only for sessions started in exactly that folder, so
-per-project hooks can't follow you into subfolders. `seamline install` sets Seamline up once
-for your user instead, in a way that stays inert outside Seamline projects:
+per-project hooks can't follow you into subfolders. `seamline install` puts Seamline's hooks
+in your user settings (`~/.claude/settings.json`) once instead, in a way that stays inert
+outside Seamline projects: each hook is a short `/bin/sh` loop that walks up from the
+session's folder looking for `seamline.toml`. None found: it exits in a few milliseconds,
+before Python starts, and nothing is read or recorded. Found: that project's Seamline
+handles the event. Other entries in the file are kept; `seamline uninstall-global` removes
+exactly Seamline's.
 
-- **Hooks** in `~/.claude/settings.json`. Each is a short `/bin/sh` loop that walks up from
-  the session's folder looking for `seamline.toml`. None found: it exits in a few
-  milliseconds, before Python starts, and nothing is read or recorded. Found: that
-  project's Seamline handles the event.
-- **An MCP server** registered at user scope (`claude mcp add --scope user seamline …`,
-  stored in `~/.claude.json`). Inside a project it offers the five tools; elsewhere it
-  offers none. Its command is your installation's Python, so a cloned repo can't slip in
-  its own "seamline" server, and there's no per-project approval to give.
+The MCP server is **not** installed user-wide: `init` registers it in each project's own
+`.mcp.json`, so it only starts in Seamline projects (see [MCP tools](#mcp-tools)).
 
-Other entries in those files are kept. `seamline uninstall-global` removes exactly
-Seamline's entries; projects keep their `seamline.toml` and ledger.
-
-Without `seamline install`, `init` falls back to per-folder setup: hooks in the project
-root and each service folder, a `.mcp.json` entry you approve per folder (run `claude`
-there once), and sessions in unlisted folders untracked until you add them as services and
-run `seamline resume`.
+Without `seamline install`, `init` falls back to per-folder hooks: in the project root and
+each service folder, and sessions started in unlisted folders untracked until you add them
+as services and run `seamline resume`.
 
 ## Set up a project
 
@@ -130,9 +125,10 @@ seamline init          # interactive; --yes accepts everything detected
   `compose*.yml`, and OpenAPI files (listed, but not scanned yet).
 - **Writes** `seamline.toml` (commit it if you like) and `.seamline/` (the ledger and logs),
   and adds `.seamline/` to `.gitignore` if the folder is a git repo.
-- **Turns recording on**: with `seamline install` done, nothing more is needed. Without
-  it, installs per-folder hooks and a `.mcp.json` entry (see [Install](#install)), unless
-  you pass `--no-hooks`.
+- **Turns recording on**: registers the MCP server in `.mcp.json` and, if you agree,
+  approves it (see [MCP tools](#mcp-tools)). With `seamline install` done, the hooks are
+  already there; without it, `init` installs per-folder hooks (see [Install](#install)).
+  `--no-hooks` skips all of this.
 - **Refuses** folders that hold many projects (your home, `Documents`, `Desktop`,
   `Downloads`, or a folder with a Seamline project inside), since everything below
   `seamline.toml` becomes one project; `--force` overrides. If several subfolders are git
@@ -249,17 +245,17 @@ they restart; while paused, those hooks do nothing.
 
 ## MCP tools
 
-With `seamline install`, the user-scope server finds the project from the session's folder,
-so every session anywhere in the project has these tools, with nothing to approve.
+`init` (or `seamline resume`) adds a `seamline` server to the project's `.mcp.json`
+(git-ignored if Seamline created it), so it only ever starts in this project. Claude Code
+finds that file from any subfolder, so one entry covers every service and every new folder.
 
-Without it, `init` (or `seamline resume`) adds a `seamline` server to the project's
-`.mcp.json` (git-ignored if Seamline created it). Claude Code finds that file from any
-subfolder, but the desktop app doesn't ask you to approve it: run `claude` once in the
-folder in a terminal and approve **seamline** (or use `/mcp` there). Approval is stored per
-folder (`"enabledMcpjsonServers": ["seamline"]` in its `.claude/settings.local.json`).
+A project's MCP server also needs your approval, and the desktop app never shows that
+dialog. So `init` asks you, and with your yes writes the same entry Claude Code's own dialog
+would: `"enabledMcpjsonServers": ["seamline"]` in the root's `.claude/settings.local.json`
+(git-ignored). That approval covers sessions in subfolders too. Only the "seamline" name
+is approved; `seamline pause` / `remove` take the entry and the approval out again.
 
-Either way, sessions already open (or resumed) keep the servers they started with; start a
-new one.
+Sessions already open (or resumed) keep the servers they started with; start a new one.
 
 | Tool | Claude calls it to… |
 |---|---|
@@ -281,7 +277,7 @@ still being read. The server logs where it started to `.seamline/logs/mcp.log`.
 
 | Command | What it does | Options |
 |---|---|---|
-| `seamline install` | One-time user-level setup: hooks and MCP server for every folder of every Seamline project, inert elsewhere | |
+| `seamline install` | One-time user-level setup: hooks for every folder of every Seamline project, inert elsewhere | |
 | `seamline uninstall-global` | Remove exactly what `install` added (projects and ledgers stay) | |
 | `seamline init [PATH]` | Set up a project (above) | `-y/--yes` accept all; `--force` overwrite `seamline.toml`; `--no-hooks` |
 | `seamline sessions` | The project's sessions by service, size, activity, and how much is ingested | `--root DIR` (works on folders without `init`) |
@@ -297,7 +293,7 @@ still being read. The server logs where it started to `.seamline/logs/mcp.log`.
 | `seamline remove` | Remove hooks and `seamline.toml`; asks before deleting `.seamline/` | `--root` |
 | `seamline worker` | Run the background worker in the foreground (normally the hooks start it) | `--root` |
 | `seamline hook <Event>` | What the hooks call (JSON from Claude Code on stdin) | |
-| `seamline mcp` | Run the MCP server over stdio (Claude Code starts it); without `--root`, for the project containing the current folder, or with no tools outside one | `--root` |
+| `seamline mcp` | Run the MCP server over stdio (Claude Code starts it from `.mcp.json`); without `--root`, for the project containing the current folder | `--root` |
 
 Commands that read or write the ledger need a project that has run `init`; they never
 create `.seamline/` elsewhere.
