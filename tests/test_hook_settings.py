@@ -1,4 +1,5 @@
 import json
+import subprocess
 
 import pytest
 
@@ -61,7 +62,7 @@ def project(tmp_path):
     root = tmp_path / "shop"
     for s in ("orders", "payments"):
         (root / "services" / s).mkdir(parents=True)
-    (root / ".git").mkdir()
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
     (root / "seamline.toml").write_text('project = "shop"\n')
     return parse_config(
         {
@@ -105,3 +106,15 @@ def test_pause_resume_remove(project):
     assert not hs.installed(project.root / "services/orders")
     assert not (project.root / "seamline.toml").exists()
     assert (project.root / ".seamline").exists()  # Kept unless you say yes
+
+
+def test_project_nested_in_a_bigger_repo_is_gitignored_too(tmp_path):
+    repo = tmp_path / "repo"
+    root = repo / "examples" / "shop"
+    (root / "services" / "orders").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (root / ".gitignore").write_text(".claude/settings.local.json\n")  # Root file only
+    config = parse_config({"project": "shop", "services": {"orders": "services/orders"}}, root)
+    install_hooks(config, lambda _: None)
+    assert hs.GITIGNORE_ENTRY in (root / ".gitignore").read_text()
+    assert hs._git_ignored(root, hs.settings_path(root / "services" / "orders"))

@@ -111,7 +111,7 @@ def installed(folder: Path) -> list[str]:
 def ensure_gitignored(config: Config) -> str | None:
     """Keep the settings files out of git: they hold this machine's Python path."""
     root = config.root
-    if not (root / ".git").exists():
+    if not _in_git_repo(root):
         return None
     unignored = [
         settings_path(folder).relative_to(root).as_posix()
@@ -127,6 +127,19 @@ def ensure_gitignored(config: Config) -> str | None:
     sep = "" if not existing or existing.endswith("\n") else "\n"
     gitignore.write_text(f"{existing}{sep}{GITIGNORE_ENTRY}\n", encoding="utf-8")
     return f"Added {GITIGNORE_ENTRY} to .gitignore"
+
+
+def _in_git_repo(root: Path) -> bool:
+    """True inside any git work tree, including a project nested in a bigger repo."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
+            capture_output=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
 
 
 def _git_ignored(root: Path, path: Path) -> bool:
