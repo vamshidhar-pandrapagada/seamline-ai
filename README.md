@@ -52,8 +52,8 @@ interface), `decision`, `dead_end` (something tried that failed). Interface kind
 ## Install
 
 ```bash
-git clone https://github.com/vamshidhar-pandrapagada/seamline.git
-uv tool install --editable ./seamline   # puts `seamline` on your PATH
+git clone https://github.com/vamshidhar-pandrapagada/seamline-ai.git
+uv tool install --editable ./seamline-ai   # puts `seamline` on your PATH
 seamline --version
 ```
 
