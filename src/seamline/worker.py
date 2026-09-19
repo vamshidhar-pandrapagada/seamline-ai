@@ -22,7 +22,7 @@ from pathlib import Path
 from seamline import paths
 from seamline.config import Config
 from seamline.extract.budget import MeteredProvider
-from seamline.extract.providers import LLMProvider
+from seamline.extract.providers import LLMProvider, key_source
 from seamline.ledger import queries as q
 from seamline.ledger.db import open_ledger
 from seamline.resolve.ingest import ingest, pending
@@ -58,19 +58,19 @@ def run_worker(
         while True:
             queue = [r for r in q.work_queue(conn) if r["session_id"] not in worker.skipped]
             if not queue:
-                write_status(root, "idle", "nothing to do")
+                _status(root, "idle", "nothing to do")
                 return 0
             ready = [r for r in queue if r["urgent"] or _quiet(r, config, clock())]
             if not ready:
-                write_status(root, "waiting", f"{len(queue)} session(s) still active")
+                _status(root, "waiting", f"{len(queue)} session(s) still active")
                 sleep(poll_seconds)
                 continue
-            write_status(root, "working", f"ingesting {len(ready)} session(s)")
+            _status(root, "working", f"ingesting {len(ready)} session(s)")
             if not worker.process(ready):
                 return 0
     except Exception as e:  # noqa: BLE001 (record it for `seamline status`, then exit)
         log.exception("worker failed")
-        write_status(root, "error", f"{type(e).__name__}: {e}")
+        _status(root, "error", f"{type(e).__name__}: {e}")
         return 1
     finally:
         lock.close()
@@ -139,7 +139,7 @@ class _Worker:
                 if self.provider.refused:
                     self._budget_stop(str(self.provider.refused))
                 else:
-                    write_status(self.config.root, "error", report.errors[-1])
+                    _status(self.config.root, "error", report.errors[-1])
                 return False
             if not result.advanced:
                 self.skipped.add(sid)
@@ -157,7 +157,12 @@ class _Worker:
 
     def _budget_stop(self, message: str) -> None:
         log.warning(message)
-        write_status(self.config.root, "budget", message, day=self.today().isoformat())
+        _status(self.config.root, "budget", message, day=self.today().isoformat())
+
+
+def _status(root: Path, state: str, message: str = "", **extra) -> None:
+    """Worker state for `seamline status`, with where the API key came from (not the key)."""
+    write_status(root, state, message, key_source=key_source(), **extra)
 
 
 def _quiet(row: sqlite3.Row, config: Config, now: float) -> bool:

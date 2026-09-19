@@ -3,7 +3,6 @@ for one project, and checking on it."""
 
 from __future__ import annotations
 
-import os
 import shutil
 import sqlite3
 from collections.abc import Callable
@@ -13,9 +12,16 @@ from pathlib import Path
 from seamline import paths
 from seamline.brief import build_brief
 from seamline.config import INTEGRATION, Config
+from seamline.extract.providers import SEAMLINE_KEY_ENV, key_source
 from seamline.hooks import settings as hook_settings
 from seamline.ledger import queries as q
 from seamline.worker_control import read_status, worker_running
+
+KEY_HELP = (
+    "The worker runs in the Claude app's environment. Give it a key only Seamline reads:\n"
+    f"    launchctl setenv {SEAMLINE_KEY_ENV} <your key>\n"
+    "  then quit and reopen the Claude app (repeat after a reboot)."
+)
 
 Out = Callable[[str], None]
 Ask = Callable[[str], str]
@@ -141,8 +147,13 @@ def run_status(conn: sqlite3.Connection, config: Config, out: Out = print) -> in
     spent = q.spent_on(conn, day)
     cap = config.worker.daily_budget_usd
     out(f"\nSpent today: ${spent:.2f} of the ${cap:.2f} daily cap")
-    key = bool(os.environ.get("ANTHROPIC_API_KEY"))
-    out(f"API key in this shell: {'yes' if key else 'no'} (the worker uses the hooks' environment)")
+    worker_key = status.get("key_source")
+    if worker_key:
+        out(f"Worker API key: from {worker_key}")
+    elif status.get("state") == "error" and "credentials" in status.get("message", ""):
+        out(f"Worker API key: MISSING. {KEY_HELP}")
+    shell_key = key_source()
+    out(f"API key in this shell: {shell_key or 'none'} (used by `seamline ingest` here)")
     errors = _recent_errors(root)
     if errors:
         out(f"\nRecent errors ({paths.logs_dir(root)}):")

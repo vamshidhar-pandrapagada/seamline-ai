@@ -46,8 +46,10 @@ interface), `decision`, `dead_end` (something tried that failed). Interface kind
 
 - macOS or Linux, Python 3.12, [uv](https://docs.astral.sh/uv/)
 - Claude Code (desktop app or CLI): Seamline reads the transcripts it already saves
-- An Anthropic API key for extraction (`ANTHROPIC_API_KEY`, from console.anthropic.com).
-  Seamline never stores it. A Claude subscription login is not used.
+- An Anthropic API key for extraction (from console.anthropic.com), in
+  `SEAMLINE_ANTHROPIC_API_KEY` (read first, and only by Seamline) or `ANTHROPIC_API_KEY`.
+  Seamline never stores it. A Claude subscription login is not used. For automatic mode,
+  see [Giving the worker a key](#giving-the-worker-a-key).
 
 ## Install
 
@@ -173,6 +175,20 @@ seamline brief --service payments   # exactly what a new payments session would 
 seamline pause     # remove the hooks (config and ledger kept); `seamline resume` re-adds them
 seamline remove    # remove hooks and seamline.toml; asks before deleting .seamline/
 ```
+
+### Giving the worker a key
+
+The hooks, and so the worker, run in the **Claude app's** environment, not your terminal's.
+Don't give the app `ANTHROPIC_API_KEY`: Claude Code reads that variable too and may bill
+your chats to the key instead of your subscription. Give it a variable only Seamline reads:
+
+```bash
+launchctl setenv SEAMLINE_ANTHROPIC_API_KEY sk-ant-...   # macOS; then quit and reopen Claude
+```
+
+`launchctl setenv` lasts until you reboot. `seamline status` shows which variable the
+worker used last (never the key), or that it found none. A dedicated key with a spend
+limit in the Anthropic Console is a good second safeguard next to the daily cap.
 
 `resume` also picks up services added to `seamline.toml` since, and removes hooks from
 folders that are no longer services. Open sessions keep the hooks they started with until

@@ -9,6 +9,7 @@ removed: third-party tools may not offer claude.ai login (Claude Agent SDK docs)
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
@@ -57,15 +58,29 @@ class LLMProvider(Protocol):
     ) -> Completion: ...
 
 
+# Read first, and only by Seamline: giving Claude Code itself ANTHROPIC_API_KEY (as the
+# background worker would need, since it runs in the Claude app's environment) could make
+# Claude Code bill your chats to that key instead of your subscription.
+SEAMLINE_KEY_ENV = "SEAMLINE_ANTHROPIC_API_KEY"
+
 NO_CREDENTIALS = (
     "no Anthropic API credentials found: create a key at https://console.anthropic.com and "
-    "set ANTHROPIC_API_KEY in your shell environment"
+    f"set {SEAMLINE_KEY_ENV} (or ANTHROPIC_API_KEY) in the environment; for background work "
+    "in the desktop app, see `seamline status`"
 )
 
 
+def key_source() -> str | None:
+    """Which environment variable the API key would come from (never the key itself)."""
+    for name in (SEAMLINE_KEY_ENV, "ANTHROPIC_API_KEY"):
+        if os.environ.get(name):
+            return name
+    return None
+
+
 class AnthropicProvider:
-    """The Messages API. Credentials come from the environment (ANTHROPIC_API_KEY or an
-    `ant auth login` profile); Seamline never stores them.
+    """The Messages API. Credentials come from the environment (SEAMLINE_ANTHROPIC_API_KEY,
+    then ANTHROPIC_API_KEY or an `ant auth login` profile); Seamline never stores them.
 
     Two ways to get schema-shaped output:
     - "tool" (default): the model records facts by calling a strict tool whose input schema
@@ -94,7 +109,8 @@ class AnthropicProvider:
         self.model = model
         self.mode = mode
         self.debug = debug
-        self.client = client or anthropic.Anthropic(max_retries=3)
+        own_key = os.environ.get(SEAMLINE_KEY_ENV) or None
+        self.client = client or anthropic.Anthropic(api_key=own_key, max_retries=3)
 
     def _request(self, system: str, prompt: str, schema: dict, tool: Tool) -> dict:
         request = {
@@ -135,8 +151,9 @@ class AnthropicProvider:
                 raise
             raise ProviderAuthError(NO_CREDENTIALS) from e
         except anthropic.AuthenticationError as e:
+            source = key_source() or "ANTHROPIC_API_KEY"
             raise ProviderAuthError(
-                "Anthropic API rejected the credentials: check ANTHROPIC_API_KEY"
+                f"Anthropic API rejected the credentials: check {source}"
             ) from e
         except anthropic.BadRequestError as e:
             raise ProviderError(f"request rejected: {e.message}") from e

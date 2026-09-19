@@ -350,13 +350,30 @@ def test_anthropic_provider_errors(response, message):
 
 
 def test_anthropic_provider_without_credentials(monkeypatch, tmp_path):
-    for var in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_PROFILE"):
+    for var in (
+        "SEAMLINE_ANTHROPIC_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_PROFILE",
+    ):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.delenv("ANTHROPIC_CONFIG_DIR", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))  # no `ant auth login` profile either
     provider = AnthropicProvider("claude-haiku-4-5")
-    with pytest.raises(ProviderAuthError, match="ANTHROPIC_API_KEY"):
+    with pytest.raises(ProviderAuthError, match="SEAMLINE_ANTHROPIC_API_KEY"):
         provider.complete("s", "p", {"type": "object"})
+
+
+def test_seamline_key_wins_over_the_generic_one(monkeypatch):
+    from seamline.extract.providers import key_source
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-generic")
+    monkeypatch.setenv("SEAMLINE_ANTHROPIC_API_KEY", "sk-seamline")
+    assert AnthropicProvider("claude-opus-5").client.api_key == "sk-seamline"
+    assert key_source() == "SEAMLINE_ANTHROPIC_API_KEY"
+    monkeypatch.delenv("SEAMLINE_ANTHROPIC_API_KEY")
+    assert AnthropicProvider("claude-opus-5").client.api_key == "sk-generic"
+    assert key_source() == "ANTHROPIC_API_KEY"
 
 
 def test_missing_credentials_stop_extraction_at_first_excerpt():
