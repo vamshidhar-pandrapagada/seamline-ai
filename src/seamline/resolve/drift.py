@@ -113,6 +113,11 @@ def recompute(conn: sqlite3.Connection) -> DriftResult:
     opened, resolved = [], []
     for key, f in current.items():
         if key in existing:
+            if existing[key]["description"] != f.description:  # Same finding, better wording
+                conn.execute(
+                    "UPDATE mismatches SET description = ? WHERE id = ?",
+                    (f.description, existing[key]["id"]),
+                )
             continue
         row = conn.execute(
             "SELECT id FROM mismatches WHERE provides_fact = ? AND assumes_fact = ? AND field = ?",

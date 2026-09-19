@@ -97,3 +97,26 @@ def test_assumptions_on_other_interfaces_are_ignored(conn):
     put(conn, "provides", "orders", {"amount_cents": "integer"})
     put(conn, "assumes", "payments", {"amount": "decimal"}, name="order.refunded")
     assert recompute(conn).opened == []
+
+
+def test_open_mismatch_description_is_refreshed():
+    from seamline.ledger.db import connect
+    from seamline.resolve.drift import recompute
+
+    conn = connect(":memory:")
+    with conn:
+        conn.execute("INSERT INTO interfaces(id, key, name) VALUES (1, 'x', 'x')")
+        for fid, kind, service, details in (
+            (1, "provides", "a", '[{"name": "amount_cents", "value": "int"}]'),
+            (2, "assumes", "b", '[{"name": "amount", "value": "decimal"}]'),
+        ):
+            conn.execute(
+                "INSERT INTO facts(id, kind, origin, service, attributed_by, interface_id, claim,"
+                " details) VALUES (?, ?, 'session', ?, 'name', 1, 'c', ?)",
+                (fid, kind, service, details),
+            )
+        recompute(conn)
+        conn.execute("UPDATE mismatches SET description = 'old wording'")
+        recompute(conn)
+    (row,) = conn.execute("SELECT description FROM mismatches").fetchall()
+    assert "amount_cents" in row[0]
