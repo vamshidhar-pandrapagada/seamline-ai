@@ -82,4 +82,6 @@ def type_key(value: str) -> str | None:
     """The type a detail value names, if it clearly names one ('int64', 'an integer')."""
     tokens = [w for w in re.split(r"[^a-z0-9]+", value.lower()) if w]
     types = {_TYPE_ALIASES[t] for t in tokens if t in _TYPE_ALIASES}
+    if types == {"integer", "number"}:  # "integer number of cents": the specific one wins
+        return "integer"
     return types.pop() if len(types) == 1 else None

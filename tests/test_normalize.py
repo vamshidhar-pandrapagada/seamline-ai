@@ -50,6 +50,7 @@ def test_field_key():
         ("an integer, in cents", "integer"),
         ("decimal", "number"),
         ("float (dollars)", "number"),
+        ("integer number of cents", "integer"),
         ("string", "string"),
         ("dollars", None),
         ("int or string", None),  # ambiguous
