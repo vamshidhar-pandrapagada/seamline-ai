@@ -6,6 +6,10 @@ Rules, because this runs inside every session of the project:
 - finish fast: only flags and ledger reads here, never a model call. Extraction happens in
   the background worker, which this starts when there's work and none is running.
 Every call is logged to `.seamline/logs/hooks.log` (event, folder, time taken, errors).
+
+The hooks come from the user settings (`seamline install`, with `--global`, one set for
+every folder) or from a folder's own settings (the older per-project setup). When a folder
+has both, the user-level call steps aside so each event is handled once.
 """
 
 from __future__ import annotations
@@ -31,6 +35,7 @@ def main(argv: list[str] | None = None, stdin=None, stdout=None) -> int:
     stdin = stdin or sys.stdin
     stdout = stdout or sys.stdout
     event = argv[0] if argv else ""
+    from_user_settings = "--global" in argv[1:]
     config: Config | None = None
     folder = ""
     try:
@@ -41,6 +46,8 @@ def main(argv: list[str] | None = None, stdin=None, stdout=None) -> int:
         config = find_project(folder)
         if config is None or paths.paused_marker(config.root).exists():
             return 0
+        if from_user_settings and _has_folder_hooks(folder):
+            return 0  # The folder's own (older, per-project) hooks handle this event
         text = handle(event, payload, config, folder)
         if text:
             stdout.write(text + "\n")
@@ -100,6 +107,12 @@ def handle(event: str, payload: dict, config: Config, folder: str) -> str:
     if work and not worker_running(config.root):
         spawn_worker(config.root)
     return text
+
+
+def _has_folder_hooks(folder: str) -> bool:
+    from seamline.hooks.settings import installed
+
+    return bool(installed(Path(folder)))
 
 
 def _log(config: Config, event: str, folder: str, started: float, outcome: str) -> None:

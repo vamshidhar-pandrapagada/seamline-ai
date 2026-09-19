@@ -37,6 +37,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"seamline {__version__}")
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
+    install = sub.add_parser(
+        "install",
+        help="One-time setup: track sessions in any folder of any Seamline project "
+        "(user-level hooks and MCP server that do nothing outside projects)",
+    )
+    install.set_defaults(func=cmd_install)
+
+    uninstall = sub.add_parser(
+        "uninstall-global", help="Undo `seamline install` (projects and ledgers are kept)"
+    )
+    uninstall.set_defaults(func=cmd_uninstall_global)
+
     init = sub.add_parser("init", help="Detect services and contracts; write seamline.toml")
     init.add_argument("path", nargs="?", default=".", help="Project root (default: current folder)")
     init.add_argument("-y", "--yes", action="store_true", help="Accept everything detected")
@@ -321,17 +333,41 @@ def cmd_worker(args: argparse.Namespace) -> int:
 
 
 def cmd_mcp(args: argparse.Namespace) -> int:
-    from seamline.mcp_server.server import run
+    """With --root, that project. Without it (the user-level registration), the project
+    containing the session's folder, or a server with no tools outside any project."""
+    from seamline.config import find_project
+    from seamline.mcp_server.server import run, run_outside_project
 
     try:
-        config = resolve_project(args.root)
-        if not config.path.exists():
-            raise ConfigError(f"{config.root} has no seamline.toml; run `seamline init` there")
+        config = resolve_project(args.root) if args.root else find_project(Path.cwd())
     except ConfigError as e:
         print(f"seamline mcp: {e}", file=sys.stderr)
         return 1
-    run(config)
+    if config is None or not config.path.exists():
+        run_outside_project()
+    else:
+        run(config)
     return 0
+
+
+def cmd_install(args: argparse.Namespace) -> int:
+    from seamline import global_install
+
+    try:
+        return global_install.install()
+    except SettingsError as e:
+        print(f"seamline install: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_uninstall_global(args: argparse.Namespace) -> int:
+    from seamline import global_install
+
+    try:
+        return global_install.uninstall()
+    except SettingsError as e:
+        print(f"seamline uninstall-global: {e}", file=sys.stderr)
+        return 1
 
 
 def cmd_hook(args: argparse.Namespace) -> int:

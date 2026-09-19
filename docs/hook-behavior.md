@@ -83,3 +83,10 @@ init` writes `.claude/settings.local.json` into the project root **and each serv
 Nothing runs in other projects. Trade-off: a session opened in an unlisted subfolder (e.g.
 `services/orders/src`) gets no hooks, so no live brief. Its transcript is still found by
 cwd-based discovery and ingested the next time the worker runs.
+
+**Revisited (19 Sep 2026):** the per-folder design left every new or unlisted folder
+without hooks. `seamline install` now adds the hooks once to the user settings instead, each
+wrapped in a `/bin/sh` guard that walks up from `$PWD` to find `seamline.toml` and exits
+before Python starts when there is none, so other projects still see no Seamline activity.
+The per-folder setup remains the fallback when `install` hasn't been run; a folder with both
+handles each event once (the user-level call steps aside).

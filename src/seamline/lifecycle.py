@@ -9,7 +9,7 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from seamline import paths
+from seamline import global_install, paths
 from seamline.brief import build_brief
 from seamline.config import INTEGRATION, Config
 from seamline.extract.providers import SEAMLINE_KEY_ENV, key_source
@@ -29,7 +29,21 @@ Ask = Callable[[str], str]
 
 
 def install_hooks(config: Config, out: Out = print) -> None:
-    """Hooks in the root and every service folder; stale ones from removed services go."""
+    """Turn recording on for this project.
+
+    With `seamline install` done, the user-level hooks and MCP server already cover every
+    folder, so this only removes per-folder entries left from before. Otherwise: hooks in
+    the root and every service folder (stale ones from removed services go) and an entry in
+    the project's .mcp.json.
+    """
+    if global_install.active():
+        uninstall_hooks(config, out)
+        out(
+            "User-level install found (`seamline install`): every folder of this project is "
+            "covered, so no per-folder hooks or .mcp.json entry are needed."
+        )
+        paths.paused_marker(config.root).unlink(missing_ok=True)
+        return
     wanted = {f.resolve() for f in hook_settings.hook_folders(config)}
     for folder in _folders_with_hooks(config):
         if folder.resolve() not in wanted and hook_settings.uninstall(folder):
@@ -66,7 +80,7 @@ def uninstall_hooks(config: Config, out: Out = print) -> int:
 
 
 def run_pause(config: Config, out: Out = print) -> int:
-    uninstall_hooks(config, out)
+    uninstall_hooks(config, out)  # With the user-level install, the marker alone pauses
     marker = paths.paused_marker(config.root)
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.touch()
@@ -117,7 +131,23 @@ def run_status(conn: sqlite3.Connection, config: Config, out: Out = print) -> in
     out(f"Recording: {'PAUSED (seamline resume)' if paused else 'on'}")
 
     out("\nHooks:")
-    for folder in hook_settings.hook_folders(config):
+    if global_install.active():
+        mcp = "registered" if global_install.mcp_registered() else "MISSING (seamline install)"
+        out("  user-level install (`seamline install`): every folder under this project")
+        out(f"  {'MCP server (user scope)':<32} {mcp}")
+        leftovers = [
+            _rel(config, f)
+            for f in hook_settings.hook_folders(config)
+            if hook_settings.installed(f)
+        ]
+        if leftovers or mcp_registration.installed(config):
+            out(
+                "  leftover per-folder entries (harmless; `seamline resume` removes them): "
+                + ", ".join(
+                    leftovers + ([".mcp.json"] if mcp_registration.installed(config) else [])
+                )
+            )
+    for folder in [] if global_install.active() else hook_settings.hook_folders(config):
         events = hook_settings.installed(folder)
         state = (
             "installed"
@@ -125,8 +155,11 @@ def run_status(conn: sqlite3.Connection, config: Config, out: Out = print) -> in
             else (f"partial ({', '.join(events)})" if events else "missing (seamline resume)")
         )
         out(f"  {_rel(config, folder) + '/':<32} {state}")
-    mcp_state = "registered" if mcp_registration.installed(config) else "missing (seamline resume)"
-    out(f"  {'MCP server (.mcp.json)':<32} {mcp_state}")
+    if not global_install.active():
+        mcp_state = (
+            "registered" if mcp_registration.installed(config) else "missing (seamline resume)"
+        )
+        out(f"  {'MCP server (.mcp.json)':<32} {mcp_state}")
     starts = _mcp_starts(root)
     if starts:
         out(f"  MCP server last started {starts}")

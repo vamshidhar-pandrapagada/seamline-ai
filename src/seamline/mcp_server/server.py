@@ -1,6 +1,8 @@
 """The MCP server (`seamline mcp`): Seamline's ledger as tools Claude can call.
 
-Claude Code starts one server per session over stdio, from the project's `.mcp.json`. Every
+Claude Code starts one server per session over stdio: from the user-level registration
+(`seamline install`, which finds the project from the session's folder) or from the
+project's `.mcp.json` (the per-project setup, with `--root`). Every
 tool opens its own ledger connection, so calls are independent. All tools are read-only
 except `remember`. Startup facts (working folder, whether the session id is visible) go to
 `.seamline/logs/mcp.log`.
@@ -137,6 +139,19 @@ def build_server(config: Config, own_session: str | None = None, cwd: Path | Non
             conn.close()
 
     return server
+
+
+def build_empty_server():
+    """For sessions outside any Seamline project (user-level registration): no tools, so the
+    session isn't offered anything."""
+    return MCPServer(
+        "seamline",
+        instructions="Not inside a Seamline project (no seamline.toml above this folder).",
+    )
+
+
+def run_outside_project() -> None:
+    build_empty_server().run("stdio")
 
 
 def run(config: Config) -> None:

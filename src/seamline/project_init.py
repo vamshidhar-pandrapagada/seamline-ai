@@ -51,6 +51,8 @@ def run_init(
             "(use --force to create a nested project anyway)"
         )
 
+    _check_not_a_collection(root, force=force, out=out)
+
     services = detect_services(root)
     contracts = detect_contracts(root)
 
@@ -83,6 +85,43 @@ def run_init(
     for w in warnings:
         out(f"warning: {w}")
     return InitResult(config=config, warnings=warnings)
+
+
+_COLLECTION_FOLDERS = ("", "Documents", "Desktop", "Downloads")
+
+
+def _check_not_a_collection(root: Path, *, force: bool, out: Callable[[str], None]) -> None:
+    """Everything below seamline.toml is one project, so refuse folders that obviously hold
+    many (your home, Documents, …, or a folder with Seamline projects inside) unless forced,
+    and point out subfolders that are git repos of their own."""
+    home = Path.home().resolve()
+    if not force and root in {(home / name).resolve() for name in _COLLECTION_FOLDERS}:
+        raise InitError(
+            f"{root} holds many projects; run `seamline init` inside one project's folder "
+            "(use --force if you really want all of it as one project)"
+        )
+    nested = [p for p in _subfolders(root) if (p / CONFIG_FILENAME).exists()]
+    if nested and not force:
+        raise InitError(
+            f"{', '.join(p.name for p in nested)} already "
+            f"{'is a Seamline project' if len(nested) == 1 else 'are Seamline projects'}; "
+            "a parent project would swallow them (use --force to do it anyway)"
+        )
+    repos = [p for p in _subfolders(root) if (p / ".git").exists()]
+    if len(repos) >= 2:
+        out(
+            f"note: {len(repos)} subfolders are git repos of their own "
+            f"({', '.join(p.name for p in repos[:5])}{', …' if len(repos) > 5 else ''}). That's "
+            "fine if they're services of one system; if they're unrelated projects, run "
+            "`seamline init` inside each instead.\n"
+        )
+
+
+def _subfolders(root: Path) -> list[Path]:
+    try:
+        return sorted(p for p in root.iterdir() if p.is_dir() and not p.name.startswith("."))
+    except OSError:
+        return []
 
 
 def _print_detected(

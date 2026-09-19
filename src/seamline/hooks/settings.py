@@ -13,6 +13,7 @@ import json
 import shlex
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from seamline.config import Config
@@ -44,34 +45,39 @@ def command_for(event: str, python: str | None = None) -> str:
 
 def install(folder: Path, python: str | None = None) -> bool:
     """Add (or refresh) Seamline's hooks in a folder. True if the file changed."""
-    path = settings_path(folder)
-    data = _load(path)
-    before = json.dumps(data, sort_keys=True)
-    hooks = _strip(data)
-    for event in EVENTS:
-        hooks.setdefault(event, []).append(
-            {
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": command_for(event, python),
-                        "timeout": TIMEOUT_SECONDS,
-                    }
-                ]
-            }
-        )
-    data["hooks"] = hooks
-    if json.dumps(data, sort_keys=True) == before:
-        return False
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    return True
+    return install_file(settings_path(folder), lambda event: command_for(event, python))
 
 
 def uninstall(folder: Path) -> bool:
     """Remove Seamline's hooks from a folder. Deletes the file (and an empty .claude/) if
     nothing else is left in it. True if anything was removed."""
-    path = settings_path(folder)
+    return uninstall_file(settings_path(folder), delete_if_empty=True)
+
+
+def installed(folder: Path) -> list[str]:
+    """Events Seamline has a hook for in this folder."""
+    return installed_file(settings_path(folder))
+
+
+def install_file(path: Path, command: Callable[[str], str]) -> bool:
+    """Add (or refresh) Seamline's hook for every event in a settings file, keeping
+    everything else in it. True if the file changed."""
+    data = _load(path)
+    before = json.dumps(data, sort_keys=True)
+    hooks = _strip(data)
+    for event in EVENTS:
+        hooks.setdefault(event, []).append(
+            {"hooks": [{"type": "command", "command": command(event), "timeout": TIMEOUT_SECONDS}]}
+        )
+    data["hooks"] = hooks
+    if json.dumps(data, sort_keys=True) == before:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write(path, data)
+    return True
+
+
+def uninstall_file(path: Path, *, delete_if_empty: bool) -> bool:
     if not path.exists():
         return False
     data = _load(path)
@@ -83,8 +89,8 @@ def uninstall(folder: Path) -> bool:
         data.pop("hooks", None)
     if json.dumps(data, sort_keys=True) == before:
         return False
-    if data:
-        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    if data or not delete_if_empty:
+        _write(path, data)
     else:
         path.unlink()
         with contextlib.suppress(OSError):
@@ -92,9 +98,7 @@ def uninstall(folder: Path) -> bool:
     return True
 
 
-def installed(folder: Path) -> list[str]:
-    """Events Seamline has a hook for in this folder."""
-    path = settings_path(folder)
+def installed_file(path: Path) -> list[str]:
     if not path.exists():
         return []
     try:
@@ -106,6 +110,13 @@ def installed(folder: Path) -> list[str]:
         for event, groups in data.get("hooks", {}).items()
         if any(_ours(h) for g in groups for h in g.get("hooks", []))
     ]
+
+
+def _write(path: Path, data: dict) -> None:
+    """Replace the file in one step, so Claude Code never reads a half-written one."""
+    tmp = path.with_name(path.name + ".seamline-tmp")
+    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
 
 
 def ensure_gitignored(config: Config) -> str | None:
