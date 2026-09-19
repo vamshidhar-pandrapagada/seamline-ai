@@ -60,6 +60,13 @@ def integration_context(conn: sqlite3.Connection, config: Config, services: list
 def contract(conn: sqlite3.Connection, config: Config, interface: str) -> str:
     """Everything recorded about one interface, current facts first, with quotes."""
     interface_id = find_interface(conn, interface)
+    parts = interface.strip(" .").split(".")
+    for i in range(1, len(parts)):
+        if interface_id is not None:
+            break
+        # A qualified name from another package or version (agents.v1.AgentInfo): try
+        # shorter suffixes, longest first, so order.created wins over created.
+        interface_id = find_interface(conn, ".".join(parts[i:]))
     if interface_id is None:
         names = [r[0] for r in conn.execute("SELECT name FROM interfaces ORDER BY name")]
         close = [n for n in names if _words(interface) & _words(n)]

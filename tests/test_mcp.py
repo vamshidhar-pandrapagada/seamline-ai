@@ -61,6 +61,8 @@ def test_check_contract_matches_any_spelling_and_quotes(filled):
         assert text.startswith("# order.created"), spelling
     assert f'"{ORDERS_SAYS}"' in text
     assert "No interface named" in tools.contract(conn, shop, "invoice.paid")
+    # A qualified name with another package still finds the message by its last part
+    assert tools.contract(conn, shop, "shop.v2.order.created").startswith("# order.created")
 
 
 def test_dead_ends_and_history_search_by_topic(filled):
@@ -175,3 +177,11 @@ def test_mcp_json_entry_is_added_merged_and_removed(tmp_path):
     registration.install(config, python="/py")
     registration.uninstall(config)
     assert not path.exists()  # A file only Seamline used is deleted
+
+
+def test_freshness_counts_project_root_sessions_for_any_service(filled):
+    shop, conn = filled
+    with conn:
+        conn.execute("UPDATE sessions SET last_ingested = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')")
+    text = freshness.describe(conn, {"orders"}, [])
+    assert "integration session root-1 read just now" in text

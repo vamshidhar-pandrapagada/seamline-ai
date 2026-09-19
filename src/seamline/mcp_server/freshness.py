@@ -59,7 +59,8 @@ def describe(
         for r in conn.execute(
             "SELECT * FROM sessions WHERE last_ingested IS NOT NULL ORDER BY last_ingested DESC"
         )
-        if services is None or (r["service"] or INTEGRATION) in services
+        # Integration (project-root) sessions can speak for any service
+        if services is None or (r["service"] or INTEGRATION) in services | {INTEGRATION}
     ][:4]
     parts = [
         f"{r['service'] or INTEGRATION} session {r['session_id'][:8]} "
