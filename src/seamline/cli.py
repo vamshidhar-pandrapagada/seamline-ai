@@ -10,20 +10,22 @@ from pathlib import Path
 from seamline import __version__
 from seamline.config import ConfigError
 from seamline.extract.providers import ProviderError, make_provider
+from seamline.hooks.settings import SettingsError
 from seamline.ledger.db import open_ledger
 from seamline.ledger_views import run_ingest, run_scan, show_drift, show_facts
+from seamline.lifecycle import (
+    install_hooks,
+    run_brief,
+    run_pause,
+    run_remove,
+    run_resume,
+    run_status,
+)
 from seamline.project_init import InitError, run_init
 from seamline.session_views import resolve_project, run_extract, show_session, show_sessions
 
 # name -> (phase it arrives in, help text)
 PLANNED: dict[str, tuple[int, str]] = {
-    "brief": (4, "Print exactly what a session would receive"),
-    "worker": (4, "Run the background worker (normally started by hooks)"),
-    "hook": (4, "Entry point for Claude Code hooks"),
-    "pause": (4, "Stop recording this project (removes its hooks; keeps config and ledger)"),
-    "resume": (4, "Start recording again (re-adds hooks, including for new services)"),
-    "remove": (4, "Remove hooks and seamline.toml; asks before deleting .seamline/"),
-    "status": (4, "Health check: recent hooks, worker state, pending sessions"),
     "mcp": (5, "Start the MCP server (stdio)"),
 }
 
@@ -40,6 +42,11 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("path", nargs="?", default=".", help="Project root (default: current folder)")
     init.add_argument("-y", "--yes", action="store_true", help="Accept everything detected")
     init.add_argument("--force", action="store_true", help="Overwrite an existing seamline.toml")
+    init.add_argument(
+        "--no-hooks",
+        action="store_true",
+        help="Don't install hooks (add them later with `seamline resume`)",
+    )
     init.set_defaults(func=cmd_init)
 
     root_help = "Project folder (default: the project containing the current folder)"
@@ -107,6 +114,32 @@ def build_parser() -> argparse.ArgumentParser:
     drift.add_argument("--root", help=root_help)
     drift.set_defaults(func=cmd_drift)
 
+    brief = sub.add_parser("brief", help="Print exactly what a new session would receive")
+    brief.add_argument("--root", help=root_help)
+    brief.add_argument("--service", help="As a session in this service (default: project root)")
+    brief.set_defaults(func=cmd_brief)
+
+    status = sub.add_parser("status", help="Health check: hooks, worker, flagged sessions, spend")
+    status.add_argument("--root", help=root_help)
+    status.set_defaults(func=cmd_status)
+
+    for name, text in (
+        ("pause", "Stop recording this project (removes its hooks; keeps config and ledger)"),
+        ("resume", "Install hooks / start recording again (picks up new services)"),
+        ("remove", "Remove hooks and seamline.toml; asks before deleting .seamline/"),
+    ):
+        p = sub.add_parser(name, help=text)
+        p.add_argument("--root", help=root_help)
+        p.set_defaults(func=cmd_lifecycle)
+
+    worker = sub.add_parser("worker", help="Run the background worker (normally started by hooks)")
+    worker.add_argument("--root", help=root_help)
+    worker.set_defaults(func=cmd_worker)
+
+    hook = sub.add_parser("hook", help="Entry point for Claude Code hooks (JSON on stdin)")
+    hook.add_argument("event", help="Hook event name, e.g. SessionStart")
+    hook.set_defaults(func=cmd_hook)
+
     for name, (phase, text) in PLANNED.items():
         p = sub.add_parser(name, help=f"{text} [phase {phase}]")
         _add_planned_args(name, p)
@@ -117,16 +150,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _add_planned_args(name: str, p: argparse.ArgumentParser) -> None:
     """Accept the arguments each future command will take, so their --help is already useful."""
-    if name == "brief":
-        p.add_argument("--service", help="Limit to one service")
-    if name == "hook":
-        p.add_argument("event", help="Hook event name, e.g. SessionStart")
 
 
 def cmd_init(args: argparse.Namespace) -> int:
     try:
-        run_init(Path(args.path), yes=args.yes, force=args.force)
-    except (InitError, ConfigError) as e:
+        result = run_init(Path(args.path), yes=args.yes, force=args.force)
+        if not args.no_hooks:
+            print("\nHooks (this project only; `seamline pause` turns them off):")
+            install_hooks(result.config)
+    except (InitError, ConfigError, SettingsError) as e:
         print(f"seamline init: {e}", file=sys.stderr)
         return 1
     except (KeyboardInterrupt, EOFError):
@@ -235,6 +267,60 @@ def cmd_drift(args: argparse.Namespace) -> int:
         print(f"seamline drift: {e}", file=sys.stderr)
         return 1
     return show_drift(conn, config)
+
+
+def cmd_brief(args: argparse.Namespace) -> int:
+    try:
+        config, conn = _ledger(args, "brief")
+    except ConfigError as e:
+        print(f"seamline brief: {e}", file=sys.stderr)
+        return 1
+    return run_brief(conn, config, args.service)
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    try:
+        config, conn = _ledger(args, "status")
+    except ConfigError as e:
+        print(f"seamline status: {e}", file=sys.stderr)
+        return 1
+    return run_status(conn, config)
+
+
+def cmd_lifecycle(args: argparse.Namespace) -> int:
+    try:
+        config = resolve_project(args.root)
+        if not config.path.exists():
+            raise ConfigError(f"{config.root} has no seamline.toml; nothing to {args.command}")
+        if args.command == "pause":
+            return run_pause(config)
+        if args.command == "resume":
+            return run_resume(config)
+        return run_remove(config)
+    except (ConfigError, SettingsError) as e:
+        print(f"seamline {args.command}: {e}", file=sys.stderr)
+        return 1
+    except (KeyboardInterrupt, EOFError):
+        print(f"\nseamline {args.command}: cancelled", file=sys.stderr)
+        return 130
+
+
+def cmd_worker(args: argparse.Namespace) -> int:
+    from seamline.worker import run_worker, setup_logging
+
+    try:
+        config = resolve_project(args.root)
+    except ConfigError as e:
+        print(f"seamline worker: {e}", file=sys.stderr)
+        return 1
+    setup_logging(config.root)
+    return run_worker(config, lambda: make_provider(config))
+
+
+def cmd_hook(args: argparse.Namespace) -> int:
+    from seamline.hooks.dispatch import main as hook_main
+
+    return hook_main([args.event])
 
 
 def cmd_not_yet(args: argparse.Namespace) -> int:

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from shop_project import make_shop
 
 
 @pytest.fixture
@@ -27,3 +28,9 @@ def isolated_claude_home(tmp_path_factory, monkeypatch):
     home = tmp_path_factory.mktemp("claude-home")
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
     return home
+
+
+@pytest.fixture
+def shop(tmp_path, isolated_claude_home):
+    """Project `shop`: services orders and payments, a session in each (see shop_project)."""
+    return make_shop(tmp_path, isolated_claude_home)

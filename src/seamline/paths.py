@@ -29,6 +29,14 @@ def worker_lock_path(root: Path) -> Path:
     return data_dir(root) / "worker.lock"
 
 
+def worker_status_path(root: Path) -> Path:
+    return data_dir(root) / "worker.json"
+
+
+def paused_marker(root: Path) -> Path:
+    return data_dir(root) / "paused"
+
+
 def hooks_log_path(root: Path) -> Path:
     return logs_dir(root) / "hooks.log"
 

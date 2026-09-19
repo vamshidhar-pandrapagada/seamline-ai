@@ -6,11 +6,11 @@ side assumes about it, plus the decisions made and the dead ends hit along the w
 standout feature is **contract drift detection**: flagging when two services' sessions (or a
 session and the code) disagree about the same interface.
 
-> **Status: Phases 0–3 done.** Seamline reads your Claude Code sessions, extracts facts
-> into a per-project ledger, scans `.proto` and docker-compose contracts, and detects drift,
-> all **on demand** (you run `seamline ingest`). Automatic capture and briefs in your
-> sessions arrive in Phase 4; tools Claude can query arrive in Phase 5 (see
-> [Roadmap](#roadmap)).
+> **Status: Phases 0–4 built.** Seamline reads your Claude Code sessions, extracts facts
+> into a per-project ledger, scans `.proto` and docker-compose contracts, and detects drift.
+> Per-project hooks capture sessions in the background (within a daily spending cap) and
+> brief new sessions; Phase 4 still needs its live trial in real sessions. Tools Claude can
+> query arrive in Phase 5 (see [Roadmap](#roadmap)).
 
 ## How it works
 
@@ -81,6 +81,8 @@ seamline init          # interactive; --yes accepts everything detected
   `compose*.yml`, and OpenAPI files (listed, but not scanned yet).
 - **Writes** `seamline.toml` (commit it if you like) and `.seamline/` (the ledger and logs),
   and adds `.seamline/` to `.gitignore` if the folder is a git repo.
+- **Installs hooks** for this project only (see [Automatic mode](#automatic-mode-hooks)),
+  unless you pass `--no-hooks`.
 - **Warns** if Claude Code's `cleanupPeriodDays` is unset or low (transcripts are deleted
   after ~30 days by default; 365 is a good value) and reports how many sessions it found.
 
@@ -132,11 +134,55 @@ OPEN MISMATCHES (1)
 `drift` exits with status 1 while mismatches are open (0 when clean), so scripts and CI can
 react.
 
+## Automatic mode (hooks)
+
+`init` (or `seamline resume` in a project set up before hooks existed) adds Seamline's hooks
+to `.claude/settings.local.json` in the project root **and in each service folder**, because
+Claude Code only applies a folder's project settings to sessions started in exactly that
+folder. Other entries in those files are kept, the files are added to `.gitignore`, and
+nothing is written to `~/.claude` or to any other project. Sessions started in an unlisted
+subfolder get no hooks; `seamline ingest` still picks them up.
+
+What happens in each session:
+
+| When | What Seamline does | Cost |
+|---|---|---|
+| Session starts | Adds a **brief** to Claude's context (≤ 400 tokens): open mismatches first, then dead ends, decisions, and what other services say about the interfaces this one uses | ~50 ms, no model call |
+| You send a prompt | If another session changed something relevant since, adds a short **update** (≤ 100 tokens), once. Other sessions with unread lines are flagged urgent (catch-up on switch) | ~50 ms, no model call |
+| Claude finishes a turn | Flags the session as having new lines | ~50 ms |
+| Before compaction, at session end | Flags it urgent | ~50 ms |
+
+A **background worker** (one per project, started by the hooks, exits when idle) ingests a
+flagged session once its transcript has been quiet for `idle_minutes` (10), or right away if
+it's urgent. So a contract change in one session reaches another session on that session's
+next prompt after the change is ingested. Only sessions seen by the hooks are ingested in
+the background; older sessions are never backfilled unless you run `seamline ingest`.
+
+**Daily spending cap:** every model call's actual cost is recorded, and the worker stops for
+the day before a call that would pass `[worker] daily_budget_usd` ($5 by default). Unread
+lines wait for the next day (or for a manual `ingest`). The cap needs a known price for the
+model, so a model missing from `extract/pricing.py` is refused.
+
+Hooks follow three rules: they never fail the session (always exit 0), print nothing but
+the brief or update, and never call the model. Each call is logged to
+`.seamline/logs/hooks.log`; the worker logs to `.seamline/logs/worker.log`.
+
+```bash
+seamline status    # hooks per folder, recent hook calls, worker state, flagged sessions, spend
+seamline brief --service payments   # exactly what a new payments session would be told
+seamline pause     # remove the hooks (config and ledger kept); `seamline resume` re-adds them
+seamline remove    # remove hooks and seamline.toml; asks before deleting .seamline/
+```
+
+`resume` also picks up services added to `seamline.toml` since, and removes hooks from
+folders that are no longer services. Open sessions keep the hooks they started with until
+they restart; while paused, those hooks do nothing.
+
 ## Commands
 
 | Command | What it does | Options |
 |---|---|---|
-| `seamline init [PATH]` | Set up a project (above) | `-y/--yes` accept all; `--force` overwrite `seamline.toml` |
+| `seamline init [PATH]` | Set up a project (above) | `-y/--yes` accept all; `--force` overwrite `seamline.toml`; `--no-hooks` |
 | `seamline sessions` | The project's sessions by service, size, activity, and how much is ingested | `--root DIR` (works on folders without `init`) |
 | `seamline show <session>` | A session's events labeled `keep` / `anchor` / `evidence` / `skip` (a unique id prefix is enough) | `--all` include skipped; `--full` untruncated; `--root` |
 | `seamline extract <session>` | **Dry run**: extract and print facts, store nothing | `--model`, `--max-chunks N`, `--json FILE` (save the result, e.g. for `eval/`), `--debug` (raw model reply), `--root` |
@@ -144,10 +190,16 @@ react.
 | `seamline facts` | List facts with sources (session facts; code facts hidden) | `--service X`, `--kind K`, `--code` (only facts from code), `--all` (include superseded/stale, with the reason) |
 | `seamline scan` | Read `[contracts]` into facts from code | `--root` |
 | `seamline drift` | Check facts against the code, recompute and list mismatches | `--root` |
+| `seamline status` | Hooks, recent hook calls, worker state, flagged sessions, today's spend | `--root` |
+| `seamline brief` | Print the brief a new session would get | `--service X` (default: project root); `--root` |
+| `seamline pause` / `resume` | Turn recording off / on for this project (hooks removed / re-added) | `--root` |
+| `seamline remove` | Remove hooks and `seamline.toml`; asks before deleting `.seamline/` | `--root` |
+| `seamline worker` | Run the background worker in the foreground (normally the hooks start it) | `--root` |
+| `seamline hook <Event>` | What the hooks call (JSON from Claude Code on stdin) | |
 
-`ingest`, `facts`, `scan` and `drift` need a project that has run `init`; they never create
-`.seamline/` elsewhere. `brief`, `worker`, `hook`, `pause`, `resume`, `remove`, `status`
-(Phase 4) and `mcp` (Phase 5) are listed in `--help` but not implemented yet.
+Commands that read or write the ledger need a project that has run `init`; they never
+create `.seamline/` elsewhere. `mcp` (Phase 5) is listed in `--help` but not implemented
+yet.
 
 ## Configuration: `seamline.toml`
 
@@ -166,12 +218,12 @@ provider = "anthropic"            # the only provider
 model = "claude-opus-5"           # default; claude-haiku-4-5 is cheaper but less precise
 
 [worker]
-idle_minutes = 10                 # Phase 4
+idle_minutes = 10                 # the worker ingests a session after this long without new lines
 daily_budget_usd = 5.0            # background extraction stops for the day at this spend
 
 [brief]
-max_tokens = 400                  # Phase 4
-update_max_tokens = 100
+max_tokens = 400                  # brief at session start
+update_max_tokens = 100           # update on a later prompt
 ```
 
 Unknown keys are errors, so typos don't pass silently. Service names use lowercase letters,
@@ -234,8 +286,8 @@ records are recognized and extracted only once.
   before spending; `--yes` skips the question.
 - **Spend tracking:** every model call's cost (the token usage the API reports × list
   prices) is recorded in the ledger. `ingest` shows today's total against
-  `[worker] daily_budget_usd` ($5 by default). The cap stops background work (Phase 4);
-  runs you confirm yourself are recorded but not blocked. For a hard limit on the key
+  `[worker] daily_budget_usd` ($5 by default). The cap stops background work; runs you
+  confirm yourself are recorded but not blocked. For a hard limit on the key
   itself, also set a spend limit in the Anthropic Console.
 
 ## Known limitations
@@ -255,17 +307,13 @@ records are recognized and extracted only once.
   sessions with Opus 5 (vs ~40% with Haiku 4.5). Keep an eye on it; statements of a state
   that the same session then fixed can still slip through as current facts.
 - Subagent transcripts are counted but not read.
-- **Nothing is automatic yet:** until Phase 4, run `seamline ingest` yourself.
+- **Automatic mode is new:** hooks and the worker are tested with a fake model and timed
+  (~50 ms per hook), but haven't had their live trial in real desktop sessions yet.
 
 ## Roadmap
 
-- **Phase 4: hooks and background worker.** `init` writes per-project hooks (in
-  `.claude/settings.local.json` at the root and in each service folder; nothing
-  user-wide). A background worker ingests a session when it goes quiet, or right away when
-  you switch to another session of the same project, within a daily spending cap. New
-  sessions start with a brief (≤ 400 tokens, open mismatches first); open sessions get a
-  short note on their next prompt when another session changed something relevant.
-  `pause` / `resume` / `remove` per project; `status` for a health check.
+- **Phase 4 (built, live trial pending):** hooks, background worker, briefs and updates,
+  the daily cap (see [Automatic mode](#automatic-mode-hooks)).
 - **Phase 5: MCP tools** Claude can call for detail (`get_integration_context`,
   `check_contract`, `find_dead_ends`, `search_history`, `remember`), catching up on
   unprocessed session lines before answering.

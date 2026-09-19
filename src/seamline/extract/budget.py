@@ -55,6 +55,7 @@ class MeteredProvider:
         self.cap_usd = cap_usd
         self.today = today
         self.spent_usd = 0.0  # This wrapper's calls only
+        self.refused: BudgetExceeded | None = None  # Set once a call was refused
 
     @property
     def name(self) -> str:
@@ -67,16 +68,18 @@ class MeteredProvider:
         if self.cap_usd is not None:
             estimate = estimate_call_usd(self.model, system, prompt, tool)
             if estimate is None:
-                raise BudgetExceeded(
+                self.refused = BudgetExceeded(
                     f"no price known for {self.model}, so the daily cap can't be enforced; "
                     "add it to seamline/extract/pricing.py or pick a listed model"
                 )
+                raise self.refused
             spent = q.spent_on(self.conn, day)
             if spent + estimate > self.cap_usd:
-                raise BudgetExceeded(
+                self.refused = BudgetExceeded(
                     f"daily cap reached: ${spent:.2f} spent today, the next call would cost "
                     f"about ${estimate:.2f}, cap ${self.cap_usd:.2f}; work resumes tomorrow"
                 )
+                raise self.refused
         completion = self.inner.complete(system, prompt, schema, tool)
         model = completion.model or self.model
         usd = usd_for(model, completion.input_tokens, completion.output_tokens)

@@ -424,3 +424,110 @@ def spent_on(conn: sqlite3.Connection, day: str) -> float:
     """USD spent on model calls that day (calls with an unknown price count as 0)."""
     row = conn.execute("SELECT COALESCE(SUM(usd), 0) FROM spend WHERE day = ?", (day,)).fetchone()
     return float(row[0])
+
+
+# --- live sessions (hooks and worker) -----------------------------------------------------
+
+
+def touch_session(
+    conn: sqlite3.Connection,
+    session_id: str,
+    *,
+    service: str | None,
+    transcript_path: str,
+    dirty: bool = False,
+    urgent: bool = False,
+) -> None:
+    """Note a hook call: the session exists and (dirty) has lines to ingest, or (urgent)
+    should be ingested without waiting for it to go idle. Flags are only ever raised here."""
+    conn.execute(
+        """INSERT INTO sessions(session_id, service, transcript_path, dirty, urgent,
+                                last_activity)
+           VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+           ON CONFLICT(session_id) DO UPDATE SET
+             transcript_path = excluded.transcript_path,
+             dirty = MAX(dirty, excluded.dirty), urgent = MAX(urgent, excluded.urgent),
+             last_activity = excluded.last_activity""",
+        (session_id, service, transcript_path, int(dirty), int(urgent)),
+    )
+
+
+def mark_others_urgent(conn: sqlite3.Connection, session_id: str) -> int:
+    """Catch up on switch: sessions with unread lines, other than this one, skip the idle wait."""
+    return conn.execute(
+        "UPDATE sessions SET urgent = 1 WHERE dirty = 1 AND urgent = 0 AND session_id != ?",
+        (session_id,),
+    ).rowcount
+
+
+def work_queue(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM sessions WHERE dirty = 1 OR urgent = 1 ORDER BY urgent DESC, session_id"
+    ).fetchall()
+
+
+def clear_flags(conn: sqlite3.Connection, session_id: str) -> None:
+    conn.execute("UPDATE sessions SET dirty = 0, urgent = 0 WHERE session_id = ?", (session_id,))
+
+
+def last_change_id(conn: sqlite3.Connection) -> int:
+    return conn.execute("SELECT COALESCE(MAX(change_id), 0) FROM changes").fetchone()[0]
+
+
+def seen_position(conn: sqlite3.Connection, session_id: str) -> int | None:
+    row = conn.execute(
+        "SELECT last_change_id FROM seen WHERE session_id = ?", (session_id,)
+    ).fetchone()
+    return row[0] if row else None
+
+
+def set_seen(conn: sqlite3.Connection, session_id: str, change_id: int) -> None:
+    conn.execute(
+        """INSERT INTO seen(session_id, last_change_id) VALUES (?, ?)
+           ON CONFLICT(session_id) DO UPDATE SET last_change_id = excluded.last_change_id""",
+        (session_id, change_id),
+    )
+
+
+def changes_since(conn: sqlite3.Connection, change_id: int) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM changes WHERE change_id > ? ORDER BY change_id", (change_id,)
+    ).fetchall()
+
+
+def fact_sessions(conn: sqlite3.Connection, fact_id: int) -> set[str]:
+    """Sessions whose lines back a fact."""
+    rows = conn.execute(
+        "SELECT DISTINCT session_id FROM evidence WHERE fact_id = ? AND session_id IS NOT NULL",
+        (fact_id,),
+    )
+    return {r[0] for r in rows}
+
+
+def mismatch_row(conn: sqlite3.Connection, mismatch_id: int) -> sqlite3.Row | None:
+    return conn.execute(
+        """SELECT m.*, i.name AS interface, p.service AS provider, a.service AS assumer
+           FROM mismatches m JOIN interfaces i ON i.id = m.interface_id
+           JOIN facts p ON p.id = m.provides_fact JOIN facts a ON a.id = m.assumes_fact
+           WHERE m.id = ?""",
+        (mismatch_id,),
+    ).fetchone()
+
+
+def open_mismatches_with_services(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute(
+        """SELECT m.*, i.name AS interface, p.service AS provider, a.service AS assumer
+           FROM mismatches m JOIN interfaces i ON i.id = m.interface_id
+           JOIN facts p ON p.id = m.provides_fact JOIN facts a ON a.id = m.assumes_fact
+           WHERE m.status = 'open' ORDER BY m.id"""
+    ).fetchall()
+
+
+def interfaces_of(conn: sqlite3.Connection, service: str) -> set[int]:
+    """Interfaces a service's active facts are about."""
+    rows = conn.execute(
+        """SELECT DISTINCT interface_id FROM facts
+           WHERE service = ? AND status = 'active' AND interface_id IS NOT NULL""",
+        (service,),
+    )
+    return {r[0] for r in rows}
