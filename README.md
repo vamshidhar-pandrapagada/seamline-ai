@@ -6,12 +6,11 @@ side assumes about it, plus the decisions made and the dead ends hit along the w
 standout feature is **contract drift detection**: flagging when two services' sessions (or a
 session and the code) disagree about the same interface.
 
-> **Status: Phases 0–4 done.** Seamline reads your Claude Code sessions, extracts facts
+> **Status: Phases 0–5 done.** Seamline reads your Claude Code sessions, extracts facts
 > into a per-project ledger, scans `.proto` and docker-compose contracts, and detects drift.
 > Per-project hooks capture sessions in the background (within a daily spending cap), brief
-> new sessions, and tell open sessions when another one changed something relevant.
-> **Phase 5 built:** an MCP server lets Claude query the ledger itself (live trial pending;
-> see [Roadmap](#roadmap)).
+> new sessions, and tell open sessions when another one changed something relevant. An MCP
+> server lets Claude query the ledger itself (see [MCP tools](#mcp-tools)).
 
 ## How it works
 
@@ -204,6 +203,12 @@ serves every service. It asks you to approve the server the first time; Seamline
 approve itself. If Seamline created the file, it's added to `.gitignore` (it holds this
 machine's paths).
 
+**Approving it:** the desktop app may not ask. Run `claude` once in the project folder in a
+terminal and approve **seamline** (or use `/mcp` there); that writes
+`"enabledMcpjsonServers": ["seamline"]` into that folder's `.claude/settings.local.json`.
+Approval is per folder, so do it in each service folder you start sessions in. Sessions
+already open (or resumed) keep the servers they started with; start a new one.
+
 | Tool | Claude calls it to… |
 |---|---|
 | `get_integration_context(services)` | see how services fit together: every shared interface, each side's claims with sources, open mismatches first |
@@ -355,8 +360,6 @@ records are recognized and extracted only once.
 - **Echoes:** when Claude repeats what Seamline told it (a brief, an update, a tool answer)
   in its own words, extraction can record that as the session's own fact. Quotes still
   point at the session, so `check_contract` shows where it came from.
-- **MCP catch-up and the calling session:** the server can't yet tell which session called
-  it, so a tool call may also have the caller's own recent lines extracted.
 - **Evidence from restatements:** when a session restates another service's contract, the
   newer statement replaces the original fact instead of adding evidence to it, so `drift`
   may quote the restating session rather than the owning one.
@@ -365,8 +368,10 @@ records are recognized and extracted only once.
 
 - **Phase 4 (done):** hooks, background worker, briefs and updates, the daily cap (see
   [Automatic mode](#automatic-mode-hooks)).
-- **Phase 5 (built, live trial pending):** MCP tools Claude can call for detail (see
-  [MCP tools](#mcp-tools)), catching up on unread session lines before answering.
+- **Phase 5 (done):** MCP tools Claude calls for detail (see [MCP tools](#mcp-tools)). In
+  the live trial on a real two-service project, a new session loaded them unprompted,
+  called `check_contract` before planning, and its plan avoided a dead end recorded by an
+  earlier session.
 - **Phase 6:** two weeks of real use, a Claude Code plugin if it can be enabled per
   project, and the demo.
 
