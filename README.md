@@ -6,11 +6,11 @@ side assumes about it, plus the decisions made and the dead ends hit along the w
 standout feature is **contract drift detection**: flagging when two services' sessions (or a
 session and the code) disagree about the same interface.
 
-> **Status: Phases 0–4 built.** Seamline reads your Claude Code sessions, extracts facts
+> **Status: Phases 0–4 done.** Seamline reads your Claude Code sessions, extracts facts
 > into a per-project ledger, scans `.proto` and docker-compose contracts, and detects drift.
-> Per-project hooks capture sessions in the background (within a daily spending cap) and
-> brief new sessions; Phase 4 still needs its live trial in real sessions. Tools Claude can
-> query arrive in Phase 5 (see [Roadmap](#roadmap)).
+> Per-project hooks capture sessions in the background (within a daily spending cap), brief
+> new sessions, and tell open sessions when another one changed something relevant. Tools
+> Claude can query arrive in Phase 5 (see [Roadmap](#roadmap)).
 
 ## How it works
 
@@ -323,13 +323,17 @@ records are recognized and extracted only once.
   sessions with Opus 5 (vs ~40% with Haiku 4.5). Keep an eye on it; statements of a state
   that the same session then fixed can still slip through as current facts.
 - Subagent transcripts are counted but not read.
-- **Automatic mode is new:** hooks and the worker are tested with a fake model and timed
-  (~50 ms per hook), but haven't had their live trial in real desktop sessions yet.
+- **Automatic mode is new:** it passed one live trial in the desktop app (two services, a
+  renamed field and a unit mismatch both caught and relayed, ~$0.22 on Opus 5). Hooks take
+  10–60 ms; the first one after the app starts can take about a second.
+- **Evidence from restatements:** when a session restates another service's contract, the
+  newer statement replaces the original fact instead of adding evidence to it, so `drift`
+  may quote the restating session rather than the owning one.
 
 ## Roadmap
 
-- **Phase 4 (built, live trial pending):** hooks, background worker, briefs and updates,
-  the daily cap (see [Automatic mode](#automatic-mode-hooks)).
+- **Phase 4 (done):** hooks, background worker, briefs and updates, the daily cap (see
+  [Automatic mode](#automatic-mode-hooks)).
 - **Phase 5: MCP tools** Claude can call for detail (`get_integration_context`,
   `check_contract`, `find_dead_ends`, `search_history`, `remember`), catching up on
   unprocessed session lines before answering.
