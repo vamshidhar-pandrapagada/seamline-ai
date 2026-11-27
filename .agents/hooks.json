@@ -1,0 +1,18 @@
+{
+  "seamspec": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "seamspec hook antigravity session-start",
+        "timeout": 30
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "seamspec hook antigravity stop",
+        "timeout": 300
+      }
+    ]
+  }
+}

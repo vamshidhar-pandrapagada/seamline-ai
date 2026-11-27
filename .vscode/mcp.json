@@ -1,0 +1,14 @@
+{
+  "servers": {
+    "seamspec": {
+      "type": "stdio",
+      "command": "seamspec",
+      "args": [
+        "mcp"
+      ],
+      "env": {
+        "SEAMSPEC_ROOT": "${workspaceFolder}"
+      }
+    }
+  }
+}

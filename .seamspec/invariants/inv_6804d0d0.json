@@ -1,0 +1,33 @@
+{
+  "schema_version": "1",
+  "id": "inv_6804d0d0",
+  "title": "Every ADR is listed in the ADR index, and the index lists no ADR without a file",
+  "assertion": "Every ADR file (ADR-YYYYMMDD-xxxx-title.md) in the ADR folder ([adopted] adr_dir in .swerepo.toml, else docs/adr) is listed once in its README.md's index between the swerepo:adr-index markers, by its own row's link to the file ([ADR-YYYYMMDD-xxxx](file.md) in the first cell; an ID named elsewhere in a row doesn't count), and the index links no file that doesn't exist.",
+  "scope": {
+    "paths": [
+      "docs/adr/",
+      ".swerepo.toml"
+    ],
+    "tags": []
+  },
+  "status": "LOCKED",
+  "origin": {
+    "type": "manual",
+    "text": "SWERepo's hygiene rule pack (spec §6.8, ADR-20261124-cd64): seamspec/hygiene-adr-index@1.",
+    "ref": "swerepo:hygiene/adr-index@1"
+  },
+  "verification": {
+    "runner": "pytest",
+    "harness_path": ".seamspec/tests/test_inv_6804d0d0.py",
+    "harness_sha256": "774a17b163a458a901c937d5a23f62f86a799f59d12410ba0b5f68e7b3b9a44e",
+    "assertion_sha256": "c5d82349bf4a9b8ec897a5293d096a7f649db1ae39d4702caef9495bb73d6443"
+  },
+  "adr_id": null,
+  "created_at": "2026-11-27T01:11:01.668169Z",
+  "approved_at": "2026-11-27T01:13:14.104070Z",
+  "approved_by": "Vamshidhar Pandrapagada <25401978+vamshidhar-pandrapagada@users.noreply.github.com>",
+  "superseded_by": null,
+  "status_reason": null,
+  "decided_via": "terminal",
+  "critical": false
+}

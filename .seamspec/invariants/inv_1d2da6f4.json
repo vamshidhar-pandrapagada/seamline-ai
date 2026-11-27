@@ -1,0 +1,33 @@
+{
+  "schema_version": "1",
+  "id": "inv_1d2da6f4",
+  "title": "CI still runs the tests, and ci-ok still needs them",
+  "assertion": "In .github/workflows/swerepo-ci.yml, a test job, and a test-<project> job for every folder in .swerepo.toml's [projects] listed, each runs `uv run pytest` as a command of its own at the top of its step's script, is not switched off (if: false) and not allowed to fail (continue-on-error: true) at job or step level, and isn't masked (||, ;, a pipe, &, --version, --help, --collect-only, && unless it is the script's last command). ci-ok's needs names each of them, and ci-ok still fails when one fails: it runs if: always(), isn't allowed to fail, and has a step that reads the jobs' results (NEEDS: ${{ toJSON(needs) }}) into a variable and then runs `if [ -n \"$var\" ]; then` with a non-zero `exit` before any other. Both steps stop at their first failing command: GitHub's own bash or sh, no set +e, and no exit before them.",
+  "scope": {
+    "paths": [
+      ".github/workflows/swerepo-ci.yml",
+      ".swerepo.toml"
+    ],
+    "tags": []
+  },
+  "status": "LOCKED",
+  "origin": {
+    "type": "manual",
+    "text": "SWERepo's hygiene rule pack (spec §6.8, ADR-20261124-cd64): seamspec/hygiene-ci-tests@1.",
+    "ref": "swerepo:hygiene/ci-tests@1"
+  },
+  "verification": {
+    "runner": "pytest",
+    "harness_path": ".seamspec/tests/test_inv_1d2da6f4.py",
+    "harness_sha256": "6eb4fda7e98375d6bc24ec836e0c3b3a7ff7384749672904dac1ee130f80b7d0",
+    "assertion_sha256": "68758203d8d28c74355a29334a27aee80b75fcd103fd778ac2850b6e1a6c3904"
+  },
+  "adr_id": null,
+  "created_at": "2026-11-27T01:11:02.008095Z",
+  "approved_at": "2026-11-27T01:13:21.359658Z",
+  "approved_by": "Vamshidhar Pandrapagada <25401978+vamshidhar-pandrapagada@users.noreply.github.com>",
+  "superseded_by": null,
+  "status_reason": null,
+  "decided_via": "terminal",
+  "critical": false
+}
