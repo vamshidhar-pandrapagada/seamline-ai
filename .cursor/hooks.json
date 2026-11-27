@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "seamspec hook cursor session-start"
+      }
+    ],
+    "stop": [
+      {
+        "command": "seamspec hook cursor stop",
+        "timeout": 300,
+        "loop_limit": 3
+      }
+    ]
+  }
+}

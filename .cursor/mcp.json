@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "seamspec": {
+      "command": "seamspec",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}

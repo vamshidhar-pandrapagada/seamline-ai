@@ -1,0 +1,32 @@
+{
+  "schema_version": "1",
+  "id": "inv_0748bf61",
+  "title": "No personal email addresses or home-folder paths in tracked files",
+  "assertion": "Every tracked text file is free of personal email addresses and home-folder paths. Allowed: GitHub noreply addresses, reserved example domains, git@ in SSH remotes, emails declared in pyproject.toml's [project] authors and maintainers, emails in SECURITY.md, placeholder home folders (/Users/me, /home/user, C:\\Users\\you, runner, Shared), any line marked 'swerepo: allow-privacy', and the files or folders under [privacy] allow_paths in .swerepo.toml. A finding names the file, line and kind, never what was found.",
+  "scope": {
+    "paths": [
+      "**/*"
+    ],
+    "tags": []
+  },
+  "status": "LOCKED",
+  "origin": {
+    "type": "manual",
+    "text": "SWERepo's hygiene rule pack (spec §6.8, ADR-20261124-cd64): seamspec/hygiene-privacy@1.",
+    "ref": "swerepo:hygiene/privacy@1"
+  },
+  "verification": {
+    "runner": "pytest",
+    "harness_path": ".seamspec/tests/test_inv_0748bf61.py",
+    "harness_sha256": "62cb365fab1b77b9cc28afb3fa7aa97a451dda93a2a40ace350cd59d35ff14ed",
+    "assertion_sha256": "032504d77a2aea2b0b71dfc323b029fa27592842b366f4da78e2480740e2f343"
+  },
+  "adr_id": null,
+  "created_at": "2026-11-27T01:11:01.492339Z",
+  "approved_at": "2026-11-27T01:11:15.785493Z",
+  "approved_by": "Vamshidhar Pandrapagada <25401978+vamshidhar-pandrapagada@users.noreply.github.com>",
+  "superseded_by": null,
+  "status_reason": null,
+  "decided_via": "terminal",
+  "critical": false
+}

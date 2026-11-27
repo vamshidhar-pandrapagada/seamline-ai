@@ -10,3 +10,25 @@ eval/out/
 IMPLEMENTATION_PLAN.md
 seamline-canvas.html
 seamline_canvas.html
+
+# swerepo:begin
+# Local secrets and machine-specific files (SWEREPO-SPEC §6.4)
+.env
+.env.*
+!.env.example
+*.pem
+.DS_Store
+Thumbs.db
+.idea/
+.claude/settings.local.json
+# swerepo:end
+
+# SeamSpec: machine-local state and caches
+.seamspec/.local/
+.seamspec/**/__pycache__/
+
+# SeamSpec: your personal scratchpad (remove this line to share it)
+BRAINDUMP.md
+
+# SeamSpec: holds this machine's path
+.agents/mcp_config.json

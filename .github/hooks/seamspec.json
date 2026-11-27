@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "seamspec hook vscode session-start",
+        "timeout": 30,
+        "timeoutSec": 30
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "seamspec hook vscode stop",
+        "timeout": 300,
+        "timeoutSec": 300
+      }
+    ]
+  }
+}
